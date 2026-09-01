@@ -1,0 +1,247 @@
+parameters:
+	ignoreErrors:
+		-
+			message: '#^Call to an undefined method Illuminate\\Testing\\TestResponse\:\:assertCanSeeTableRecords\(\)\.$#'
+			identifier: method.notFound
+			count: 1
+			path: tests/Feature/Resources/BroadcastResourceTest.php
+
+		-
+			message: '#^Cannot access property \$status on GeekCo\\FilamentMaxBroadcasts\\Models\\Broadcast\|null\.$#'
+			identifier: property.nonObject
+			count: 1
+			path: tests/Feature/Resources/BroadcastResourceTest.php
+
+		-
+			message: '#^Cannot access property \$text on GeekCo\\FilamentMaxBroadcasts\\Models\\Broadcast\|null\.$#'
+			identifier: property.nonObject
+			count: 1
+			path: tests/Feature/Resources/BroadcastResourceTest.php
+
+		-
+			message: '#^Method GeekCo\\FilamentMaxBroadcasts\\Tests\\Feature\\Resources\\BroadcastResourceTest\:\:broadcast\(\) has parameter \$extra with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: tests/Feature/Resources/BroadcastResourceTest.php
+
+		-
+			message: '#^Parameter \#1 \$attributes of method Illuminate\\Database\\Eloquent\\Builder\<GeekCo\\FilamentMaxBroadcasts\\Models\\Broadcast\>\:\:create\(\) expects array\<string, mixed\>, array given\.$#'
+			identifier: argument.type
+			count: 1
+			path: tests/Feature/Resources/BroadcastResourceTest.php
+
+		-
+			message: '#^Cannot call method connection\(\) on mixed\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: tests/TestCase.php
+
+		-
+			message: '#^Cannot call method exec\(\) on mixed\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: tests/TestCase.php
+
+		-
+			message: '#^Cannot call method getPdo\(\) on mixed\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: tests/TestCase.php
+
+		-
+			message: '#^Offset ''db'' might not exist on Illuminate\\Foundation\\Application\|null\.$#'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: tests/TestCase.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>can_create_broadcasts" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: tests/TestCase.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>can_manage_broadcasts" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: tests/TestCase.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>can_send_broadcasts" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: tests/TestCase.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>can_view_broadcasts" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: tests/TestCase.php
+
+		-
+			message: '#^Call to static method PHPUnit\\Framework\\Assert\:\:assertSame\(\) with ''failed'' and ''failed'' will always evaluate to true\.$#'
+			identifier: staticMethod.alreadyNarrowedType
+			count: 1
+			path: tests/Unit/Enums/BroadcastRecipientStatusTest.php
+
+		-
+			message: '#^Call to static method PHPUnit\\Framework\\Assert\:\:assertSame\(\) with ''pending'' and ''pending'' will always evaluate to true\.$#'
+			identifier: staticMethod.alreadyNarrowedType
+			count: 1
+			path: tests/Unit/Enums/BroadcastRecipientStatusTest.php
+
+		-
+			message: '#^Call to static method PHPUnit\\Framework\\Assert\:\:assertSame\(\) with ''sent'' and ''sent'' will always evaluate to true\.$#'
+			identifier: staticMethod.alreadyNarrowedType
+			count: 1
+			path: tests/Unit/Enums/BroadcastRecipientStatusTest.php
+
+		-
+			message: '#^Call to static method PHPUnit\\Framework\\Assert\:\:assertSame\(\) with ''cancelled'' and ''cancelled'' will always evaluate to true\.$#'
+			identifier: staticMethod.alreadyNarrowedType
+			count: 1
+			path: tests/Unit/Enums/BroadcastStatusTest.php
+
+		-
+			message: '#^Call to static method PHPUnit\\Framework\\Assert\:\:assertSame\(\) with ''completed'' and ''completed'' will always evaluate to true\.$#'
+			identifier: staticMethod.alreadyNarrowedType
+			count: 1
+			path: tests/Unit/Enums/BroadcastStatusTest.php
+
+		-
+			message: '#^Call to static method PHPUnit\\Framework\\Assert\:\:assertSame\(\) with ''failed'' and ''failed'' will always evaluate to true\.$#'
+			identifier: staticMethod.alreadyNarrowedType
+			count: 1
+			path: tests/Unit/Enums/BroadcastStatusTest.php
+
+		-
+			message: '#^Call to static method PHPUnit\\Framework\\Assert\:\:assertSame\(\) with ''running'' and ''running'' will always evaluate to true\.$#'
+			identifier: staticMethod.alreadyNarrowedType
+			count: 1
+			path: tests/Unit/Enums/BroadcastStatusTest.php
+
+		-
+			message: '#^Call to static method PHPUnit\\Framework\\Assert\:\:assertSame\(\) with ''scheduled'' and ''scheduled'' will always evaluate to true\.$#'
+			identifier: staticMethod.alreadyNarrowedType
+			count: 1
+			path: tests/Unit/Enums/BroadcastStatusTest.php
+
+		-
+			message: '#^Call to static method PHPUnit\\Framework\\Assert\:\:assertSame\(\) with ''news'' and ''news'' will always evaluate to true\.$#'
+			identifier: staticMethod.alreadyNarrowedType
+			count: 1
+			path: tests/Unit/Enums/BroadcastTypeTest.php
+
+		-
+			message: '#^Call to static method PHPUnit\\Framework\\Assert\:\:assertSame\(\) with ''promo'' and ''promo'' will always evaluate to true\.$#'
+			identifier: staticMethod.alreadyNarrowedType
+			count: 1
+			path: tests/Unit/Enums/BroadcastTypeTest.php
+
+		-
+			message: '#^Cannot access property \$error on GeekCo\\FilamentMaxBroadcasts\\Models\\BroadcastRecipient\|null\.$#'
+			identifier: property.nonObject
+			count: 1
+			path: tests/Unit/Jobs/SendBroadcastJobTest.php
+
+		-
+			message: '#^Cannot access property \$status on GeekCo\\FilamentMaxBroadcasts\\Models\\BroadcastRecipient\|null\.$#'
+			identifier: property.nonObject
+			count: 3
+			path: tests/Unit/Jobs/SendBroadcastJobTest.php
+
+		-
+			message: '#^Cannot access property \$id on GeekCo\\FilamentMaxBroadcasts\\Models\\Broadcast\|null\.$#'
+			identifier: property.nonObject
+			count: 1
+			path: tests/Unit/Models/BroadcastRecipientTest.php
+
+		-
+			message: '#^Cannot access property \$id on GeekCo\\LaravelMaxClient\\Models\\MaxChat\|null\.$#'
+			identifier: property.nonObject
+			count: 1
+			path: tests/Unit/Models/BroadcastRecipientTest.php
+
+		-
+			message: '#^Call to static method PHPUnit\\Framework\\Assert\:\:assertIsInt\(\) with int will always evaluate to true\.$#'
+			identifier: staticMethod.alreadyNarrowedType
+			count: 3
+			path: tests/Unit/Models/BroadcastTest.php
+
+		-
+			message: '#^Cannot access property \$id on Illuminate\\Database\\Eloquent\\Model\|null\.$#'
+			identifier: property.nonObject
+			count: 1
+			path: tests/Unit/Models/BroadcastTest.php
+
+		-
+			message: '#^Cannot access property \$id on GeekCo\\LaravelMaxClient\\Models\\MaxChat\|null\.$#'
+			identifier: property.nonObject
+			count: 2
+			path: tests/Unit/Services/BroadcastRecipientsResolverTest.php
+
+		-
+			message: '#^Cannot access offset ''buttons'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: tests/Unit/Services/BroadcastSenderTest.php
+
+		-
+			message: '#^Cannot access offset ''payload'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 2
+			path: tests/Unit/Services/BroadcastSenderTest.php
+
+		-
+			message: '#^Cannot access offset ''text'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: tests/Unit/Services/BroadcastSenderTest.php
+
+		-
+			message: '#^Cannot access offset ''token'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: tests/Unit/Services/BroadcastSenderTest.php
+
+		-
+			message: '#^Cannot access offset ''type'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 5
+			path: tests/Unit/Services/BroadcastSenderTest.php
+
+		-
+			message: '#^Cannot access offset ''url'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: tests/Unit/Services/BroadcastSenderTest.php
+
+		-
+			message: '#^Cannot access offset 0 on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 7
+			path: tests/Unit/Services/BroadcastSenderTest.php
+
+		-
+			message: '#^Cannot access offset 1 on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: tests/Unit/Services/BroadcastSenderTest.php
+
+		-
+			message: '#^Method GeekCo\\FilamentMaxBroadcasts\\Tests\\Unit\\Services\\BroadcastSenderTest\:\:decodeBody\(\) should return array\<mixed\> but returns mixed\.$#'
+			identifier: return.type
+			count: 1
+			path: tests/Unit/Services/BroadcastSenderTest.php
+
+		-
+			message: '#^Parameter \#2 \$haystack of static method PHPUnit\\Framework\\Assert\:\:assertCount\(\) expects Countable\|iterable, mixed given\.$#'
+			identifier: argument.type
+			count: 3
+			path: tests/Unit/Services/BroadcastSenderTest.php
+
+		-
+			message: '#^Cannot access property \$id on Illuminate\\Database\\Eloquent\\Model\|null\.$#'
+			identifier: property.nonObject
+			count: 1
+			path: tests/Unit/Services/BroadcastServiceTest.php
