@@ -1,0 +1,70 @@
+{
+  "name": "geekcodev/filament-max-broadcasts",
+  "description": "Filament plugin: mass broadcasts to MAX messenger users, on top of geekcodev/laravel-max-client.",
+  "keywords": [
+    "laravel",
+    "filament",
+    "livewire",
+    "max",
+    "max messenger",
+    "broadcast",
+    "newsletter"
+  ],
+  "license": "MIT",
+  "type": "library",
+  "homepage": "https://github.com/geekcodev/filament-max-broadcasts",
+  "authors": [
+    {
+      "name": "Evgeny Semenov",
+      "email": "geekco@yandex.ru",
+      "homepage": "https://github.com/geekcodev"
+    }
+  ],
+  "require": {
+    "php": "^8.4",
+    "ext-dom": "*",
+    "ext-libxml": "*",
+    "ext-fileinfo": "*",
+    "filament/filament": "^5.0",
+    "geekcodev/laravel-max-client": "^1.1.0",
+    "geekcodev/max-php-client": "^1.0.9",
+    "laravel/framework": "^13.0",
+    "livewire/livewire": "^4.1"
+  },
+  "require-dev": {
+    "friendsofphp/php-cs-fixer": "^3.0",
+    "larastan/larastan": "^3.0",
+    "orchestra/testbench": "^11.0",
+    "phpstan/phpstan-phpunit": "^2.0",
+    "phpunit/phpunit": "^11.5"
+  },
+  "autoload": {
+    "psr-4": {
+      "GeekCo\\FilamentMaxBroadcasts\\": "src/"
+    }
+  },
+  "autoload-dev": {
+    "psr-4": {
+      "GeekCo\\FilamentMaxBroadcasts\\Tests\\": "tests/"
+    }
+  },
+  "extra": {
+    "laravel": {
+      "providers": [
+        "GeekCo\\FilamentMaxBroadcasts\\FilamentMaxBroadcastsServiceProvider"
+      ]
+    }
+  },
+  "scripts": {
+    "test": "phpunit",
+    "analyse": "phpstan analyse --memory-limit=-1",
+    "lint": "php-cs-fixer fix --dry-run --diff",
+    "format": "php-cs-fixer fix",
+    "security-audit": "composer audit"
+  },
+  "config": {
+    "sort-packages": true
+  },
+  "minimum-stability": "stable",
+  "prefer-stable": true
+}
