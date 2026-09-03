@@ -9,6 +9,7 @@ use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ViewRecord;
 use GeekCo\FilamentMaxBroadcasts\Enums\BroadcastStatus;
 use GeekCo\FilamentMaxBroadcasts\Models\Broadcast;
+use GeekCo\FilamentMaxBroadcasts\Models\BroadcastAttachment;
 use GeekCo\FilamentMaxBroadcasts\Resources\BroadcastResource;
 use GeekCo\FilamentMaxBroadcasts\Services\BroadcastService;
 
@@ -39,11 +40,19 @@ class ViewBroadcast extends ViewRecord
                     $broadcast = $this->getRecord();
                     $user = auth()->user();
 
+                    /** @var list<array{upload_type: string, path: string}> $attachments */
+                    $attachments = $broadcast->attachments->map(
+                        static fn (BroadcastAttachment $attachment): array => [
+                            'upload_type' => $attachment->upload_type->value,
+                            'path' => $attachment->path,
+                        ],
+                    )->all();
+
                     app(BroadcastService::class)->create(
                         text: $broadcast->text,
                         scheduledAt: null,
                         creator: $user,
-                        imagePath: $broadcast->image_path,
+                        attachments: $attachments,
                         type: $broadcast->type,
                     );
 

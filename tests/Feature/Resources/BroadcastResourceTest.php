@@ -29,7 +29,6 @@ class BroadcastResourceTest extends TestCase
             'password' => 'secret',
             'can_view_broadcasts' => true,
             'can_create_broadcasts' => true,
-            'can_send_broadcasts' => true,
             'can_manage_broadcasts' => true,
         ]);
     }
@@ -100,6 +99,9 @@ class BroadcastResourceTest extends TestCase
         Livewire::test(CreateBroadcast::class)->assertForbidden();
     }
 
+    /**
+     * @param array<string, mixed> $extra
+     */
     private function broadcast(BroadcastStatus $status, array $extra = []): Broadcast
     {
         return Broadcast::query()->create(array_merge([
@@ -172,6 +174,7 @@ class BroadcastResourceTest extends TestCase
             ->get();
 
         self::assertCount(1, $newBroadcasts);
+        self::assertNotNull($newBroadcasts->first());
         self::assertSame(BroadcastStatus::Running, $newBroadcasts->first()->status);
         self::assertSame($original->text, $newBroadcasts->first()->text);
 
@@ -206,6 +209,7 @@ class BroadcastResourceTest extends TestCase
 
         Livewire::test(ListBroadcasts::class)
             ->assertSuccessful()
+            // @phpstan-ignore method.notFound
             ->assertCanSeeTableRecords(Broadcast::query()->get());
     }
 

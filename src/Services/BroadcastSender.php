@@ -4,8 +4,7 @@ declare(strict_types=1);
 
 namespace GeekCo\FilamentMaxBroadcasts\Services;
 
-use GeekCo\FilamentMaxBroadcasts\Enums\BroadcastType;
-use GeekCo\FilamentMaxBroadcasts\Support\PromoButtons;
+use GeekCo\FilamentMaxBroadcasts\Contracts\BroadcastTypeContract;
 use GeekCo\MaxPhpClient\ApiClient;
 use GeekCo\MaxPhpClient\Dto\AttachmentRequest;
 use GeekCo\MaxPhpClient\Dto\NewMessageBody;
@@ -17,36 +16,42 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 
 /**
- * Единственная точка отправки рассылки в MAX: текст (HTML), фото, промо-кнопки.
+ * Единственная точка отправки рассылки в MAX: текст (HTML), медиавложения, кнопки-диплинки.
  * Прямые вызовы ApiClient из Filament/Page запрещены — только через этот сервис.
  */
 class BroadcastSender
 {
-    public function __construct(private readonly ApiClient $api)
-    {
+    public function __construct(
+        private readonly ApiClient $api,
+    ) {
     }
 
     /**
-     * Отправляет рассылку одному получателю. Для типа «Акция» подставляет
-     * кнопки-диплинки в мини-приложение (из конфига).
+     * Отправляет рассылку одному получателю.
+     *
+     * @param  list<array{upload_type: string, path: string}>  $media
      */
-    public function send(Recipient $recipient, string $text, ?string $imagePath, BroadcastType $type): void
+    public function send(Recipient $recipient, string $text, array $media, BroadcastTypeContract $type): void
     {
         $attachments = [];
 
-        if ($imagePath !== null && trim($imagePath) !== '') {
-            $attachments[] = $this->uploadImage($imagePath);
+        foreach ($media as $item) {
+            $uploadType = UploadType::tryFrom($item['upload_type']);
+
+            if ($uploadType === null || trim($item['path']) === '') {
+                continue;
+            }
+
+            $attachments[] = $this->uploadMedia($uploadType, $item['path']);
         }
 
-        if ($type === BroadcastType::Promo) {
-            $rows = app(PromoButtons::class)->rows();
+        $rows = $type->buttonRows();
 
-            if ($rows !== []) {
-                $attachments[] = AttachmentRequest::create(
-                    type: AttachmentType::InlineKeyboard,
-                    rows: $rows,
-                );
-            }
+        if ($rows !== []) {
+            $attachments[] = AttachmentRequest::create(
+                type: AttachmentType::InlineKeyboard,
+                rows: $rows,
+            );
         }
 
         $this->api->sendMessage(
@@ -59,11 +64,11 @@ class BroadcastSender
         );
     }
 
-    private function uploadImage(string $path): AttachmentRequest
+    private function uploadMedia(UploadType $type, string $path): AttachmentRequest
     {
         $disk = config()->string('filament-max-broadcasts.image.disk', 'public');
 
-        return $this->uploadToAttachment(UploadType::Image, Storage::disk($disk)->path($path), $path);
+        return $this->uploadToAttachment($type, Storage::disk($disk)->path($path), $path);
     }
 
     private function uploadToAttachment(UploadType $type, string $absolutePath, ?string $label = null): AttachmentRequest
@@ -94,9 +99,19 @@ class BroadcastSender
         ]);
 
         return AttachmentRequest::create(
-            type: AttachmentType::Image,
+            type: $this->attachmentType($type),
             token: $result->token,
             url: $result->token === null ? $result->url : null,
         );
+    }
+
+    private function attachmentType(UploadType $type): AttachmentType
+    {
+        return match ($type) {
+            UploadType::Image => AttachmentType::Image,
+            UploadType::Video => AttachmentType::Video,
+            UploadType::Audio => AttachmentType::Audio,
+            UploadType::File => AttachmentType::File,
+        };
     }
 }

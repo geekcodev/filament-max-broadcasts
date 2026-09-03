@@ -51,6 +51,7 @@ class BroadcastRecipientTest extends TestCase
             'status' => 'pending',
         ]);
 
+        self::assertNotNull($recipient->broadcast);
         self::assertSame($broadcast->id, $recipient->broadcast->id);
     }
 
@@ -75,6 +76,7 @@ class BroadcastRecipientTest extends TestCase
             'status' => 'sent',
         ]);
 
+        self::assertNotNull($recipient->maxChat);
         self::assertSame($chat->id, $recipient->maxChat->id);
     }
 }

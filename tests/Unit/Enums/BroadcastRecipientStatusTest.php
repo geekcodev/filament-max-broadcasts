@@ -11,9 +11,21 @@ class BroadcastRecipientStatusTest extends TestCase
 {
     public function testValues(): void
     {
-        self::assertSame('pending', BroadcastRecipientStatus::Pending->value);
-        self::assertSame('sent', BroadcastRecipientStatus::Sent->value);
-        self::assertSame('failed', BroadcastRecipientStatus::Failed->value);
+        self::assertSame(['pending', 'sent', 'failed'], $this->caseValues());
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function caseValues(): array
+    {
+        $values = [];
+
+        foreach (BroadcastRecipientStatus::cases() as $case) {
+            $values[] = $case->value;
+        }
+
+        return $values;
     }
 
     public function testLabel(): void

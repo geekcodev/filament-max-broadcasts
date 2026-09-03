@@ -12,7 +12,6 @@ use Illuminate\Notifications\Notifiable;
  * @property string $email
  * @property bool $can_view_broadcasts
  * @property bool $can_create_broadcasts
- * @property bool $can_send_broadcasts
  * @property bool $can_manage_broadcasts
  */
 class TestUser extends BaseUser
@@ -28,7 +27,6 @@ class TestUser extends BaseUser
         'password',
         'can_view_broadcasts',
         'can_create_broadcasts',
-        'can_send_broadcasts',
         'can_manage_broadcasts',
     ];
 
@@ -37,7 +35,6 @@ class TestUser extends BaseUser
         return [
             'can_view_broadcasts' => 'boolean',
             'can_create_broadcasts' => 'boolean',
-            'can_send_broadcasts' => 'boolean',
             'can_manage_broadcasts' => 'boolean',
             'password' => 'hashed',
         ];

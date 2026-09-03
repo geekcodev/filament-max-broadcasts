@@ -72,6 +72,26 @@ class BroadcastTextSanitizerTest extends TestCase
         self::assertSame('<p>text</p>', $this->sanitizer->sanitize('<!-- comment --><p>text</p>'));
     }
 
+    public function testRemovesNestedCommentsInsideElements(): void
+    {
+        self::assertSame('<p>text</p>', $this->sanitizer->sanitize('<p><!-- inner -->text</p>'));
+    }
+
+    public function testRemovesCommentThenUnwrapsUnknownElement(): void
+    {
+        self::assertSame('text', $this->sanitizer->sanitize('<div><!-- c -->text</div>'));
+    }
+
+    public function testSanitizeDivUnwrapsKeepingInlineFormatting(): void
+    {
+        self::assertSame('Hello <b>world</b>', $this->sanitizer->sanitize('<div>Hello <b>world</b></div>'));
+    }
+
+    public function testToMaxHtmlHandlesBlockquoteAsBlock(): void
+    {
+        self::assertSame("<blockquote>quote</blockquote>\nBody", $this->sanitizer->toMaxHtml('<blockquote>quote</blockquote><p>Body</p>'));
+    }
+
     public function testToMaxHtmlConvertsParagraphsToNewlines(): void
     {
         self::assertSame("First\nSecond", $this->sanitizer->toMaxHtml('<p>First</p><p>Second</p>'));

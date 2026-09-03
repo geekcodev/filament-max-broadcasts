@@ -12,9 +12,10 @@ use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use GeekCo\FilamentMaxBroadcasts\Enums\BroadcastStatus;
-use GeekCo\FilamentMaxBroadcasts\Enums\BroadcastType;
 use GeekCo\FilamentMaxBroadcasts\Models\Broadcast;
+use GeekCo\FilamentMaxBroadcasts\Models\BroadcastAttachment;
 use GeekCo\FilamentMaxBroadcasts\Services\BroadcastService;
+use GeekCo\FilamentMaxBroadcasts\Support\BroadcastTypes;
 
 class BroadcastsTable
 {
@@ -34,18 +35,15 @@ class BroadcastsTable
                 TextColumn::make('has_image')
                     ->label(__('filament-max-broadcasts::broadcasts.table.image'))
                     ->getStateUsing(
-                        static fn (Broadcast $record): string => $record->image_path !== null
+                        static fn (Broadcast $record): string => $record->attachments()->exists()
                             ? __('filament-max-broadcasts::broadcasts.table.has_image')
                             : __('filament-max-broadcasts::broadcasts.table.no_image'),
                     ),
                 TextColumn::make('type')
                     ->label(__('filament-max-broadcasts::broadcasts.table.type'))
                     ->badge()
-                    ->color(fn (BroadcastType $state): string => match ($state) {
-                        BroadcastType::News => 'gray',
-                        BroadcastType::Promo => 'success',
-                    })
-                    ->formatStateUsing(fn (BroadcastType $state): string => $state->label()),
+                    ->color(fn (string $state): string => BroadcastTypes::badgeColor($state))
+                    ->formatStateUsing(static fn (string $state): string => BroadcastTypes::label($state)),
                 TextColumn::make('status')
                     ->label(__('filament-max-broadcasts::broadcasts.table.status'))
                     ->badge()
@@ -71,7 +69,7 @@ class BroadcastsTable
                     ->options(BroadcastStatus::labels())
                     ->label(__('filament-max-broadcasts::broadcasts.table.filter_status')),
                 SelectFilter::make('type')
-                    ->options(BroadcastType::labels())
+                    ->options(BroadcastTypes::options())
                     ->label(__('filament-max-broadcasts::broadcasts.table.filter_type')),
             ])
             ->recordActions([
@@ -89,11 +87,19 @@ class BroadcastsTable
                     ->action(function (Broadcast $record): void {
                         $user = auth()->user();
 
+                        /** @var list<array{upload_type: string, path: string}> $attachments */
+                        $attachments = $record->attachments->map(
+                            static fn (BroadcastAttachment $attachment): array => [
+                                'upload_type' => $attachment->upload_type->value,
+                                'path' => $attachment->path,
+                            ],
+                        )->all();
+
                         app(BroadcastService::class)->create(
                             text: $record->text,
                             scheduledAt: null,
                             creator: $user,
-                            imagePath: $record->image_path,
+                            attachments: $attachments,
                             type: $record->type,
                         );
 

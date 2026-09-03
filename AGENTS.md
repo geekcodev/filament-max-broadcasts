@@ -11,11 +11,11 @@
   MAX-мессенджера внутри Filament-панели. Строится поверх `geekcodev/laravel-max-client` (реестр чатов
   `max_chats`/`max_users`) и ядра `geekcodev/max-php-client` (Bot API MAX). Репозиторий/рабочая папка —
   `filament-max-broadcasts`, переиспользуемый автономный пакет.
-- **Что даёт.** Filament-ресурс «Рассылки» (`BroadcastResource`): создание (текст HTML, тип «Новость/Акция», фото,
-  отложенная отправка), сбор получателей из активных чатов `max_chats`, отправка через MAX API с санитизацией HTML и
-  настраиваемыми кнопками-диплинками для акций, статусы `scheduled → running → completed/cancelled/failed` со
-  счётчиками, очередь `SendBroadcastJob` с локом/батчами/ретраями/отменой, страницы список/создание/просмотр и relation
-  manager получателей.
+- **Что даёт.** Filament-ресурс «Рассылки» (`BroadcastResource`): создание (текст HTML, тип «Новость/Акция», медиав-
+  ложения — картинки/видео/файлы, отложенная отправка), сбор получателей из активных чатов `max_chats`, отправка через
+  MAX API с санитизацией HTML и настраиваемыми кнопками-диплинками для акций, статусы
+  `scheduled → running → completed/cancelled/failed` со счётчиками, очередь `SendBroadcastJob` с
+  локом/батчами/ретраями/отменой, страницы список/создание/просмотр и relation manager получателей.
 - **Принцип.** Плагин самодостаточен для рассылок: модели `Broadcast`/`BroadcastRecipient`, сервисы, job и Filament-
   ресурс живут внутри пакета. От хост-приложения он ожидает только: опубликованные миграции laravel-max-client
   (`max_chats`/`max_users`), рабочую очередь и настройку прав. Механизмы laravel-max-client не дублируются — используем
@@ -61,26 +61,30 @@
 
 ```
 config/filament-max-broadcasts.php    publishable-конфиг (--tag=filament-max-broadcasts-config)
-database/migrations/                  миграции max_broadcasts / max_broadcast_recipients (грузятся из пакета)
+database/migrations/                  миграции max_broadcasts / max_broadcast_recipients / max_broadcast_attachments (грузятся из пакета)
 lang/{ru,en}/broadcasts.php           подписи UI ресурса «Рассылки»
 src/
   FilamentMaxBroadcastsServiceProvider.php  composition root: config/lang/migrations publish, биндинги сервисов
   FilamentMaxBroadcastsPlugin.php           Filament v5 plugin: ресурс рассылок в панели
   Enums/
     BroadcastStatus.php                scheduled|running|completed|cancelled|failed
-    BroadcastType.php                  news|promo
+    BroadcastTypes/News.php, Promo.php типы рассылок — backed-enum'ы, реализующие BroadcastTypeContract
     BroadcastRecipientStatus.php       pending|sent|failed
+  Contracts/BroadcastTypeContract.php  контракт типа рассылки (label/buttonRows/badgeColor)
   Events/BroadcastCompleted.php        событие завершения рассылки
   Models/
     Broadcast.php                      max_broadcasts (creator(), recipients())
     BroadcastRecipient.php             max_broadcast_recipients (broadcast(), maxChat())
+    BroadcastAttachment.php            max_broadcast_attachments (broadcast(), uploadType)
   Jobs/SendBroadcastJob.php            очередь: лок, батчи, ретраи, отмена, счётчики
   Services/
     BroadcastService.php               create(): сбор получателей + создание + dispatch
     BroadcastTextSanitizer.php         санитизация HTML под whitelist тегов MAX + toMaxHtml()
     BroadcastRecipientsResolver.php    выбор получателей (активные чаты, дедуп по chat_id) — расширяемый
-    BroadcastSender.php                отправка в MAX: текст/фото/промо-кнопки (uploadMedia + sendMessage)
-  Support/PromoButtons.php             сборка кнопок-диплинков акций из конфига
+    BroadcastSender.php                отправка в MAX: текст/медиавложения/кнопки-диплинки (uploadMedia + sendMessage)
+  Support/
+    BroadcastTypes.php                 реестр типов из конфига (instance/contains/options/label/badgeColor)
+    BroadcastTypeDefaults.php          трейт дефолтного поведения типов (lang-подпись, кнопки из per_type)
   Resources/
     BroadcastResource.php              Filament-ресурс «Рассылки»
     Schemas/BroadcastForm.php          форма создания/просмотра
@@ -88,8 +92,8 @@ src/
     Pages/{CreateBroadcast,ListBroadcasts,ViewBroadcast}.php
     RelationManagers/BroadcastRecipientsRelationManager.php
 tests/                                PHPUnit + Orchestra Testbench
-  Fixtures/                            AdminPanelProvider, TestUser, миграция users, Gate broadcasts.*
-  Unit/                                enums, models, sanitizer, resolver, promo buttons, sender, service, job
+  Fixtures/                            AdminPanelProvider, TestUser, OffersType, миграция users, Gate broadcasts.*
+  Unit/                                enums, models, sanitizer, resolver, types, sender, service, job
   Feature/                             BroadcastResource (листинг/создание/просмотр/действия)
 Dockerfile                            PHP 8.4 (ghcr.io/geekcodev/php) + опциональный Xdebug
 docker-compose.yml                    сервис app, user 1000:1000, volume ./
@@ -108,29 +112,41 @@ Filament-компонентах.
 
 - **Подключение**: `->plugin(FilamentMaxBroadcastsPlugin::make())` в PanelProvider. Регистрирует ресурс
   `BroadcastResource`. Права (строки, `$user->can(...)`, совместимо со spatie/laravel-permission и Gate):
-  `permissions.view` (`broadcasts.view`), `permissions.create` (`broadcasts.create`), `permissions.send`
-  (`broadcasts.send`), `permissions.manage` (`broadcasts.manage`).
+  `permissions.view` (`broadcasts.view`), `permissions.create` (`broadcasts.create`),
+  `permissions.manage` (`broadcasts.manage`).
 - **Получатели**: `BroadcastRecipientsResolver` — единственный источник списка `MaxChat` для рассылки (активные чаты,
   дедуп по `chat_id`, сортировка по `last_activity_at`). Модель чата — `config('filament-max-broadcasts.chats_model')`
   (по умолчанию пакетный `GeekCo\LaravelMaxClient\Models\MaxChat`), статус — `MaxChatStatus::Active`.
-- **Создание рассылки**: `BroadcastService::create(text, scheduledAt, creator, imagePath, type)` — резолвит получателей,
-  сохраняет `Broadcast` + `BroadcastRecipient`s, `dispatch()` через `SendBroadcastJob` (с `delay()` при будущем
-  расписании). Текст санитизируется `BroadcastTextSanitizer->sanitize()` при создании.
+- **Создание рассылки**: `BroadcastService::create(text, scheduledAt, creator, attachments, type)` — резолвит
+  получателей, сохраняет `Broadcast` + вложения (`attachments`, `list<array{upload_type, path}>`) + `BroadcastRecipient`
+  s,
+  `dispatch()` через `SendBroadcastJob` (с `delay()` при будущем расписании). Текст санитизируется
+  `BroadcastTextSanitizer->sanitize()` при создании; невалидный вложение (несуществующий `UploadType`/пустой path) —
+  `InvalidArgumentException 'Invalid broadcast attachment #%d.'`.
 - **Отправка**: `SendBroadcastJob` — `Cache::lock("broadcast:{id}")`, статус `running`, батчи по `queue.batch_size`
   (25) с проверкой отмены и обновлением счётчиков, `sendTo()` через `BroadcastSender->send(new Recipient(chatId,
-  userId), toMaxHtml(text), imagePath, type)`, по завершении — `completed` + `BroadcastCompleted`. `failed()` →
-  `failed`.
-- **BroadcastSender** — единственная точка отправки рассылки: загрузка фото (`uploadMedia`), для «Акции» — кнопки от
-  `PromoButtons` (InlineKeyboard), сообщение с `format=html`. Прямые вызовы ApiClient из Filament/Page запрещены.
+  userId), toMaxHtml(text), $media, type)`, где `$media` — `list<array{upload_type, path}>` из вложений рассылки; по
+  завершении — `completed` + `BroadcastCompleted`. `failed()` → `failed`.
+- **BroadcastSender** — единственная точка отправки рассылки: загрузка медиавложений (картинки/видео/файлы через
+  `uploadMedia`, `UploadType→AttachmentType` match), кнопки-диплинки (InlineKeyboard) от
+  `BroadcastTypeContract::buttonRows()`, сообщение с `format=html`. Прямые вызовы ApiClient из Filament/Page запрещены.
 - **Санатизация**: `BroadcastTextSanitizer` (whitelist тегов MAX, drop script/style, unwrap неизвестных) + `toMaxHtml()`
   — разворачивание `<p>`/`<div>`/`<br>` в `\n`, иначе MAX не рендерит абзацы. Применяется и при создании, и перед
   отправкой.
-- **Промо-кнопки**: `PromoButtons` собирает кнопки из `config('filament-max-broadcasts.bot_username')` и
-  `promo_buttons` (список `{text, startapp}`) → URL `https://max.ru/<bot>?startapp=<param>`. Пусто при пустом
-  `bot_username`
-  или пустом списке.
-- **Таблицы**: `max_broadcasts` и `max_broadcast_recipients` (структура — наследие `broadcasts`/`broadcast_recipients`
-  из хоста, но с префиксом `max_` во избежание конфликтов). FK `created_by` → таблица `users` (модель —
+- **Типы и кнопки**: типы рассылок — это поведение. Реестр `types` из конфига отображает токен на класс, реализующий
+  `BroadcastTypeContract` (default: `Enums\BroadcastTypes\{News,Promo}`, каждый — backed-enum с case value === токен).
+  Простейший тип строится на трейте `BroadcastTypeDefaults`: подпись из lang `broadcasts.type.<token>`, кнопки из
+  `bot_username` + `buttons.per_type.<token>` (`list<InlineKeyboardButtonRow>`, URL
+  `https://max.ru/<bot>?startapp=<param>`), цвет badge `gray`. Хост добавляет тип = свой enum (трейт + нужные
+  переопределения
+  `label()/buttonRows()/badgeColor()`) + строка в `types`. Кнопок нет при пустом
+  `bot_username`, пустом списке или переопределённом `buttonRows()`. `BroadcastTypes` — реестр:
+  `instance()/contains()/options()/label()/badgeColor()`; неизвестный токен fail-fast при создании и мягкий fallback
+  (сырое значение/серый) в отображении. Лимиты глобальные и к типам не относятся: размер текста — 4000 (лимит API MAX),
+  размер медиавложений — `image.max_kb`.
+- **Таблицы**: `max_broadcasts`, `max_broadcast_recipients` и `max_broadcast_attachments` (структура — наследие
+  `broadcasts`/`broadcast_recipients` из хоста, но с префиксом `max_` во избежание конфликтов; вложения — отдельная
+  таблица по нескольку на рассылку). FK `created_by` → таблица `users` (модель —
   `config('filament-max-broadcasts.user_model')`). Миграции грузятся из пакета автоматически.
 - **Переопределение моделей**: `broadcast_model`/`recipient_model`/`chats_model`/`user_model` — конфигурируемы.
 
@@ -160,6 +176,14 @@ docker compose exec app composer format    # php-cs-fixer fix
 docker compose exec app composer audit     # composer audit
 ```
 
+Если `composer analyse` падает с подозрительным крашем (например, `Undefined constant Larastan\Larastan\
+LARAVEL_VERSION` в `LarastanStubFilesExtension`), сначала удали кэш PHPStan — устаревший `.phpstan-cache` вызывает
+ложные краши:
+
+```bash
+docker compose exec app rm -rf .phpstan-cache
+```
+
 ## 7. Обязательный Gate перед завершением задачи
 
 1. **Lint PHP**: `composer lint` (php-cs-fixer --dry-run) → 0 ошибок; при правках — `composer format`.
@@ -187,7 +211,7 @@ docker compose exec app composer audit     # composer audit
 ## 9. Источник истины (MAX API)
 
 - Спецификация: `https://github.com/geekcodev/max-openapi` (OpenAPI 3.1), сервер `https://platform-api2.max.ru`.
-- Отправка рассылки: `ApiClient::sendMessage` (`NewMessageBody`, `TextFormat::Html`), `uploadMedia` для фото,
+- Отправка рассылки: `ApiClient::sendMessage` (`NewMessageBody`, `TextFormat::Html`), `uploadMedia` для медиавложений,
   `InlineKeyboardButton`/`ButtonType::Link` для кнопок-диплинков акций. Сигнатуры брать из пакета
   `geekcodev/max-php-client`, не выдумывать.
 - Реестр чатов/пользователей — из `geekcodev/laravel-max-client` (`MaxChat`, `MaxUser`, `MaxChatStatus`).

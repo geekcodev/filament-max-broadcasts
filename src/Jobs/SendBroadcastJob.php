@@ -4,13 +4,16 @@ declare(strict_types=1);
 
 namespace GeekCo\FilamentMaxBroadcasts\Jobs;
 
+use GeekCo\FilamentMaxBroadcasts\Contracts\BroadcastTypeContract;
 use GeekCo\FilamentMaxBroadcasts\Enums\BroadcastRecipientStatus;
 use GeekCo\FilamentMaxBroadcasts\Enums\BroadcastStatus;
 use GeekCo\FilamentMaxBroadcasts\Events\BroadcastCompleted;
 use GeekCo\FilamentMaxBroadcasts\Models\Broadcast;
+use GeekCo\FilamentMaxBroadcasts\Models\BroadcastAttachment;
 use GeekCo\FilamentMaxBroadcasts\Models\BroadcastRecipient;
 use GeekCo\FilamentMaxBroadcasts\Services\BroadcastSender;
 use GeekCo\FilamentMaxBroadcasts\Services\BroadcastTextSanitizer;
+use GeekCo\FilamentMaxBroadcasts\Support\BroadcastTypes;
 use GeekCo\MaxPhpClient\Dto\Recipient;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -86,6 +89,8 @@ class SendBroadcastJob implements ShouldQueue
             'sent_at' => $broadcast->sent_at ?? now(),
         ])->save();
 
+        $type = BroadcastTypes::instance($broadcast->type);
+
         /** @var Collection<int, BroadcastRecipient> $recipients */
         $recipients = $broadcast->recipients()
             ->where('status', BroadcastRecipientStatus::Pending)
@@ -98,7 +103,7 @@ class SendBroadcastJob implements ShouldQueue
                 return;
             }
 
-            $this->sendTo($sender, $recipient);
+            $this->sendTo($sender, $recipient, $type);
 
             if ($index > 0 && $index % $batchSize === 0) {
                 $this->refreshCounters($broadcast);
@@ -119,14 +124,23 @@ class SendBroadcastJob implements ShouldQueue
         BroadcastCompleted::dispatch($broadcast);
     }
 
-    private function sendTo(BroadcastSender $sender, BroadcastRecipient $recipient): void
+    private function sendTo(BroadcastSender $sender, BroadcastRecipient $recipient, BroadcastTypeContract $type): void
     {
+        /** @var list<array{upload_type: string, path: string}> $media */
+        $media = $this->broadcast->attachments
+            ->map(static fn (BroadcastAttachment $attachment): array => [
+                'upload_type' => $attachment->upload_type->value,
+                'path' => $attachment->path,
+            ])
+            ->values()
+            ->all();
+
         try {
             $sender->send(
                 new Recipient(chatId: $recipient->chat_id, userId: $recipient->user_id),
                 app(BroadcastTextSanitizer::class)->toMaxHtml($this->broadcast->text),
-                $this->broadcast->image_path,
-                $this->broadcast->type,
+                $media,
+                $type,
             );
             $recipient->forceFill([
                 'status' => BroadcastRecipientStatus::Sent,

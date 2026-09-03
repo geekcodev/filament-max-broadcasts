@@ -8,6 +8,7 @@ use GeekCo\FilamentMaxBroadcasts\FilamentMaxBroadcastsServiceProvider;
 use GeekCo\FilamentMaxBroadcasts\Tests\Fixtures\AdminPanelProvider;
 use GeekCo\FilamentMaxBroadcasts\Tests\Fixtures\TestUser;
 use GeekCo\LaravelMaxClient\MaxServiceProvider;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Queue;
 use Orchestra\Testbench\TestCase as Orchestra;
@@ -22,25 +23,21 @@ abstract class TestCase extends Orchestra
         $this->loadMigrationsFrom(__DIR__.'/../vendor/geekcodev/laravel-max-client/database/migrations');
         $this->loadMigrationsFrom(__DIR__.'/Fixtures/Migrations');
 
-        $this->app['db']->connection()->getPdo()->exec('PRAGMA foreign_keys = ON');
+        DB::connection()->getPdo()->exec('PRAGMA foreign_keys = ON');
 
         Queue::fake();
 
         Gate::define(
             'broadcasts.view',
-            static fn (?TestUser $user): bool => $user?->can_view_broadcasts ?? false,
+            static fn (?TestUser $user): bool => $user->can_view_broadcasts ?? false,
         );
         Gate::define(
             'broadcasts.create',
-            static fn (?TestUser $user): bool => $user?->can_create_broadcasts ?? false,
-        );
-        Gate::define(
-            'broadcasts.send',
-            static fn (?TestUser $user): bool => $user?->can_send_broadcasts ?? false,
+            static fn (?TestUser $user): bool => $user->can_create_broadcasts ?? false,
         );
         Gate::define(
             'broadcasts.manage',
-            static fn (?TestUser $user): bool => $user?->can_manage_broadcasts ?? false,
+            static fn (?TestUser $user): bool => $user->can_manage_broadcasts ?? false,
         );
     }
 
