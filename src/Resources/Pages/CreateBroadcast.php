@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace GeekCo\FilamentMaxBroadcasts\Resources\Pages;
 
 use Filament\Resources\Pages\CreateRecord;
-use GeekCo\FilamentMaxBroadcasts\Enums\BroadcastType;
+use GeekCo\FilamentMaxBroadcasts\Enums\BroadcastTypes\News;
 use GeekCo\FilamentMaxBroadcasts\Models\Broadcast;
 use GeekCo\FilamentMaxBroadcasts\Resources\BroadcastResource;
 use GeekCo\FilamentMaxBroadcasts\Services\BroadcastService;
@@ -16,12 +16,19 @@ class CreateBroadcast extends CreateRecord
     protected static string $resource = BroadcastResource::class;
 
     /**
-     * @param  array{text: string, type?: string, image_path?: string|null, scheduled_at?: string|null}  $data
+     * @param  array{text: string, type?: string, images?: list<string>, videos?: list<string>, files?: list<string>, scheduled_at?: string|null}  $data
      */
     protected function handleRecordCreation(array $data): Broadcast
     {
         $creator = auth()->user();
         $scheduledAt = $data['scheduled_at'] ?? null;
+        $attachments = [];
+
+        foreach (['images' => 'image', 'videos' => 'video', 'files' => 'file'] as $key => $uploadType) {
+            foreach ((array) ($data[$key] ?? []) as $path) {
+                $attachments[] = ['upload_type' => $uploadType, 'path' => $path];
+            }
+        }
 
         return app(BroadcastService::class)->create(
             text: $data['text'],
@@ -29,10 +36,8 @@ class CreateBroadcast extends CreateRecord
                 ? Carbon::parse($scheduledAt)
                 : null,
             creator: $creator,
-            imagePath: $data['image_path'] ?? null,
-            type: isset($data['type']) && $data['type'] !== ''
-                ? BroadcastType::tryFrom($data['type']) ?? BroadcastType::News
-                : BroadcastType::News,
+            attachments: $attachments,
+            type: ($data['type'] ?? '') ?: News::News->value,
         );
     }
 }

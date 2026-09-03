@@ -6,8 +6,8 @@ namespace GeekCo\FilamentMaxBroadcasts\Tests\Unit\Services;
 
 use GeekCo\FilamentMaxBroadcasts\Enums\BroadcastRecipientStatus;
 use GeekCo\FilamentMaxBroadcasts\Enums\BroadcastStatus;
-use GeekCo\FilamentMaxBroadcasts\Enums\BroadcastType;
 use GeekCo\FilamentMaxBroadcasts\Jobs\SendBroadcastJob;
+use GeekCo\FilamentMaxBroadcasts\Models\BroadcastAttachment;
 use GeekCo\FilamentMaxBroadcasts\Services\BroadcastRecipientsResolver;
 use GeekCo\FilamentMaxBroadcasts\Services\BroadcastService;
 use GeekCo\FilamentMaxBroadcasts\Services\BroadcastTextSanitizer;
@@ -17,6 +17,7 @@ use GeekCo\LaravelMaxClient\Enums\MaxChatStatus;
 use GeekCo\LaravelMaxClient\Models\MaxChat;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Queue;
+use InvalidArgumentException;
 
 class BroadcastServiceTest extends TestCase
 {
@@ -104,10 +105,14 @@ class BroadcastServiceTest extends TestCase
         );
 
         self::assertSame($user->id, $broadcast->created_by);
-        self::assertSame($user->id, $broadcast->creator->id);
+        self::assertNotNull($broadcast->creator);
+
+        /** @var TestUser $creator */
+        $creator = $broadcast->creator;
+        self::assertSame($user->id, $creator->id);
     }
 
-    public function testCreateWithImage(): void
+    public function testCreateWithAttachments(): void
     {
         $service = new BroadcastService(
             new BroadcastTextSanitizer(),
@@ -117,10 +122,43 @@ class BroadcastServiceTest extends TestCase
         $broadcast = $service->create(
             text: 'Hello',
             scheduledAt: null,
-            imagePath: 'broadcasts/photo.jpg',
+            attachments: [
+                ['upload_type' => 'image', 'path' => 'broadcasts/photo.jpg'],
+                ['upload_type' => 'video', 'path' => 'broadcasts/clip.mp4'],
+            ],
         );
 
-        self::assertSame('broadcasts/photo.jpg', $broadcast->image_path);
+        self::assertSame(2, $broadcast->attachments()->count());
+
+        $attachments = $broadcast->attachments;
+        $first = $attachments->get(0);
+        $second = $attachments->get(1);
+        self::assertInstanceOf(BroadcastAttachment::class, $first);
+        self::assertInstanceOf(BroadcastAttachment::class, $second);
+        self::assertSame('image', $first->upload_type->value);
+        self::assertSame('broadcasts/photo.jpg', $first->path);
+        self::assertSame(0, $first->sort_order);
+        self::assertSame('video', $second->upload_type->value);
+        self::assertSame('broadcasts/clip.mp4', $second->path);
+        self::assertSame(1, $second->sort_order);
+    }
+
+    public function testCreateRejectsInvalidAttachmentType(): void
+    {
+        $service = new BroadcastService(
+            new BroadcastTextSanitizer(),
+            $this->makeResolverWithChats(1, 11),
+        );
+
+        $this->expectException(InvalidArgumentException::class);
+
+        $service->create(
+            text: 'Hi',
+            scheduledAt: null,
+            attachments: [
+                ['upload_type' => 'gif', 'path' => 'broadcasts/x.gif'],
+            ],
+        );
     }
 
     public function testCreateWithPromoType(): void
@@ -133,9 +171,25 @@ class BroadcastServiceTest extends TestCase
         $broadcast = $service->create(
             text: 'Promo!',
             scheduledAt: null,
-            type: BroadcastType::Promo,
+            type: 'promo',
         );
 
-        self::assertSame(BroadcastType::Promo, $broadcast->type);
+        self::assertSame('promo', $broadcast->type);
+    }
+
+    public function testCreateRejectsUnknownType(): void
+    {
+        $service = new BroadcastService(
+            new BroadcastTextSanitizer(),
+            $this->makeResolverWithChats(1, 11),
+        );
+
+        $this->expectException(InvalidArgumentException::class);
+
+        $service->create(
+            text: 'Hi',
+            scheduledAt: null,
+            type: 'unknown-type',
+        );
     }
 }

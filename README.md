@@ -8,13 +8,15 @@ Filament-плагин: **массовые рассылки** пользоват�
 
 - ресурс «Рассылки» (`BroadcastResource`): создание, список, просмотр, relation manager получателей;
 - текст рассылки в формате HTML (RichEditor) с санитизацией под whitelist тегов MAX;
-- тип «Новость» или «Акция»; для акций — настраиваемые кнопки-диплинки в мини-приложение;
-- фото к рассылке (загрузка через `FileUpload`, лимит из конфига) и отложенная отправка (`scheduled_at`);
+- тип «Новость» или «Акция» (реестр типов в конфиге, добавляются свои); для типов с настроенными кнопками —
+  кнопки-диплинки в мини-приложение;
+- медиа-вложения к рассылке — несколько картинок, видео и файлов (загрузка через `FileUpload`, типы и лимит из конфига)
+  и отложенная отправка (`scheduled_at`);
 - сбор получателей — активные чаты из реестра `max_chats` (дедуп по `chat_id`, расширяемый резолвер);
 - статусы `scheduled → running → completed/cancelled/failed` со счётчиками `total/delivered/failed`;
 - очередь `SendBroadcastJob`: лок на рассылку, батчи, ретраи, отмена, событие `BroadcastCompleted`;
 - действия «Повторить» / «Отправить сейчас» / «Отменить» / «Удалить», фильтры по статусу и типу;
-- права настраиваются строками (`broadcasts.view` / `broadcasts.create` / `broadcasts.send` / `broadcasts.manage`
+- права настраиваются строками (`broadcasts.view` / `broadcasts.create` / `broadcasts.manage`
   по умолчанию) — совместимо со spatie/laravel-permission и Gate.
 
 ## Требования
@@ -49,7 +51,7 @@ public function panel(Panel $panel): Panel
 
 ```php
 Role::findByName('admin')->givePermissionTo([
-    'broadcasts.view', 'broadcasts.create', 'broadcasts.send', 'broadcasts.manage',
+    'broadcasts.view', 'broadcasts.create', 'broadcasts.manage',
 ]);
 ```
 
@@ -63,28 +65,36 @@ php artisan vendor:publish --tag=filament-max-broadcasts-migrations # мигра
 
 Ключевые параметры:
 
-| Ключ                                                                      | По умолчанию                                       | Описание                                                                 |
-|---------------------------------------------------------------------------|----------------------------------------------------|--------------------------------------------------------------------------|
-| `permissions.*`                                                           | `broadcasts.view/create/send/manage`               | Права на доступ/создание/отправку/управление рассылками                  |
-| `bot_username` / `promo_buttons`                                          | пусто (`''`), список `{text,startapp}`             | Имя бота и кнопки-диплинки для акций (`https://max.ru/<bot>?startapp=…`) |
-| `queue.batch_size` / `lock_ttl_seconds` / `tries` / `timeout` / `backoff` | 25 / 600 / 3 / 3600 / `[60,300]`                   | Параметры очереди `SendBroadcastJob`                                     |
-| `image.disk` / `directory` / `max_kb`                                     | `public` / `broadcasts` / 10240                    | Диск, каталог и лимит размера фото рассылки                              |
-| `chats_model`                                                             | пакетный `Models\MaxChat`                          | Модель реестра чатов (переопределяйте подклассом)                        |
-| `broadcast_model` / `recipient_model` / `user_model`                      | пакетные модели; `Illuminate\Foundation\Auth\User` | Переопределение моделей плагина                                          |
-| `recipients.resolver`                                                     | пакетный `BroadcastRecipientsResolver`             | Класс выбора получателей для рассылки                                    |
-| `ui.*`                                                                    | см. конфиг                                         | Иконка/лейблы/sort/slug навигации ресурса                                |
+| Ключ                                                                      | По умолчанию                                       | Описание                                                                            |
+|---------------------------------------------------------------------------|----------------------------------------------------|-------------------------------------------------------------------------------------|
+| `permissions.*`                                                           | `broadcasts.view/create/manage`                    | Права на доступ/создание/управление рассылками                                      |
+| `types`                                                                   | пакетные `News` / `Promo` enums                    | Реестр типов рассылок: `token` → класс, реализующий `BroadcastTypeContract`         |
+| `bot_username` / `buttons.per_type`                                       | пусто (`''`) / `[]`                                | Имя бота и кнопки-диплинки по типу по умолчанию (`https://max.ru/<bot>?startapp=…`) |
+| `queue.batch_size` / `lock_ttl_seconds` / `tries` / `timeout` / `backoff` | 25 / 600 / 3 / 3600 / `[60,300]`                   | Параметры очереди `SendBroadcastJob`                                                |
+| `image.disk` / `directory` / `max_kb` / `accepted_mime_types`             | `public` / `broadcasts` / 51200 (КБ, ~50 МБ) / …   | Диск, каталог, лимит размера и допустимые типы медиавложений рассылки               |
+| `chats_model`                                                             | пакетный `Models\MaxChat`                          | Модель реестра чатов (переопределяйте подклассом)                                   |
+| `broadcast_model` / `recipient_model` / `user_model`                      | пакетные модели; `Illuminate\Foundation\Auth\User` | Переопределение моделей плагина                                                     |
+| `recipients.resolver`                                                     | пакетный `BroadcastRecipientsResolver`             | Класс выбора получателей для рассылки                                               |
+| `ui.*`                                                                    | см. конфиг                                         | Иконка/лейблы/sort/slug навигации ресурса                                           |
 
-Настройки кнопок акций (тип «Акция»):
+Настройки кнопок-диплинков по умолчанию (по типу рассылки):
 
 ```php
-'bot_username'   => 'my_service_bot',
-'promo_buttons'  => [
-    ['text' => 'Запись на сервис', 'startapp' => 'booking'],
-    ['text' => 'Консультация',     'startapp' => 'consult'],
+'bot_username' => 'my_service_bot',
+'buttons' => [
+    'per_type' => [
+        'promo' => [
+            ['text' => 'Запись на сервис', 'startapp' => 'booking'],
+            ['text' => 'Консультация',     'startapp' => 'consult'],
+        ],
+    ],
 ],
 ```
 
-Если `bot_username` пуст или список кнопок пуст — кнопки не добавляются (рассылка «Новость»).
+Кнопок нет для типа, если `bot_username` пуст, для него ничего не настроено в `buttons.per_type`, либо тип переопределил
+`buttonRows()` (по умолчанию `'news'` идёт без кнопок). Свои типы добавляются в реестр `types` классом, реализующим
+`Contracts\BroadcastTypeContract` (простейший — трейт `Support\BroadcastTypeDefaults` + регистрация в конфиге).
+Поведение типа (подписи, кнопки, цвет badge) живёт в самом типе.
 
 ## Архитектура
 
@@ -95,9 +105,13 @@ php artisan vendor:publish --tag=filament-max-broadcasts-migrations # мигра
   `chat_id`, сортировка по `last_activity_at`);
 - `Services\BroadcastTextSanitizer` — санитизация HTML под whitelist тегов MAX + `toMaxHtml()` (разворачивание
   `<p>`/`<div>`/`<br>` в `\n`, иначе MAX не рендерит абзацы);
-- `Services\BroadcastSender` — единая точка отправки в MAX: фото (`uploadMedia`), кнопки акций (`InlineKeyboard`),
-  сообщение с `TextFormat::Html`;
-- `Support\PromoButtons` — сборка кнопок-диплинков из конфига (`bot_username` + `promo_buttons`);
+- `Services\BroadcastSender` — единая точка отправки в MAX: медиавложения (картинки/видео/файлы через `uploadMedia`),
+  кнопки-диплинки (`InlineKeyboard`), сообщение с `TextFormat::Html`;
+- `Support\BroadcastTypes` — реестр типов из конфига (`types`, token → класс контракта) для форм/фильтров/колонок:
+  `options()`, `instance()`, `label()`, `badgeColor()`;
+- `Contracts\BroadcastTypeContract` + `Support\BroadcastTypeDefaults` — типы как поведение: каждый тип — свой
+  backed-enum, подписи/кнопки/цвет определяет сам тип (дефолты — из трейта, кнопки по умолчанию из
+  `bot_username` + `buttons.per_type`);
 - `Jobs\SendBroadcastJob` — очередь: `Cache::lock("broadcast:{id}")`, статус `running`, батчи по `queue.batch_size`
   с проверкой отмены и обновлением счётчиков, по завершении — `completed` + `BroadcastCompleted`;
 - `Events\BroadcastCompleted` — событие завершения рассылки;

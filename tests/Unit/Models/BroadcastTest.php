@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace GeekCo\FilamentMaxBroadcasts\Tests\Unit\Models;
 
 use GeekCo\FilamentMaxBroadcasts\Enums\BroadcastStatus;
-use GeekCo\FilamentMaxBroadcasts\Enums\BroadcastType;
 use GeekCo\FilamentMaxBroadcasts\Models\Broadcast;
 use GeekCo\FilamentMaxBroadcasts\Models\BroadcastRecipient;
 use GeekCo\FilamentMaxBroadcasts\Tests\Fixtures\TestUser;
@@ -22,7 +21,7 @@ class BroadcastTest extends TestCase
     {
         $broadcast = Broadcast::query()->create([
             'text' => 'Hello',
-            'type' => BroadcastType::News,
+            'type' => 'news',
             'status' => BroadcastStatus::Scheduled,
             'scheduled_at' => now()->addHour(),
             'total_recipients' => 5,
@@ -30,11 +29,11 @@ class BroadcastTest extends TestCase
             'failed_count' => 1,
         ]);
 
-        self::assertSame(BroadcastType::News, $broadcast->type);
+        self::assertSame('news', $broadcast->type);
         self::assertSame(BroadcastStatus::Scheduled, $broadcast->status);
-        self::assertIsInt($broadcast->total_recipients);
-        self::assertIsInt($broadcast->delivered_count);
-        self::assertIsInt($broadcast->failed_count);
+        self::assertSame(5, $broadcast->total_recipients);
+        self::assertSame(2, $broadcast->delivered_count);
+        self::assertSame(1, $broadcast->failed_count);
     }
 
     public function testCreatorRelation(): void
@@ -47,19 +46,23 @@ class BroadcastTest extends TestCase
 
         $broadcast = Broadcast::query()->create([
             'text' => 'Hello',
-            'type' => BroadcastType::News,
+            'type' => 'news',
             'status' => BroadcastStatus::Scheduled,
             'created_by' => $user->id,
         ]);
 
-        self::assertSame($user->id, $broadcast->creator->id);
+        self::assertNotNull($broadcast->creator);
+
+        /** @var TestUser $creator */
+        $creator = $broadcast->creator;
+        self::assertSame($user->id, $creator->id);
     }
 
     public function testRecipientsRelation(): void
     {
         $broadcast = Broadcast::query()->create([
             'text' => 'Hello',
-            'type' => BroadcastType::News,
+            'type' => 'news',
             'status' => BroadcastStatus::Running,
         ]);
 

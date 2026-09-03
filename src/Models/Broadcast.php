@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace GeekCo\FilamentMaxBroadcasts\Models;
 
 use GeekCo\FilamentMaxBroadcasts\Enums\BroadcastStatus;
-use GeekCo\FilamentMaxBroadcasts\Enums\BroadcastType;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -14,8 +13,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 /**
  * @property int $id
  * @property string $text
- * @property BroadcastType $type
- * @property string|null $image_path
+ * @property string $type
  * @property BroadcastStatus $status
  * @property \Illuminate\Support\Carbon|null $scheduled_at
  * @property \Illuminate\Support\Carbon|null $sent_at
@@ -25,11 +23,11 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property int|null $created_by
  * @property \Illuminate\Support\Carbon|null $created_at
  * @property \Illuminate\Support\Carbon|null $updated_at
+ * @property \Illuminate\Database\Eloquent\Collection<int, BroadcastAttachment> $attachments
  */
 #[Fillable([
     'text',
     'type',
-    'image_path',
     'status',
     'scheduled_at',
     'sent_at',
@@ -48,7 +46,6 @@ class Broadcast extends Model
     {
         return [
             'status' => BroadcastStatus::class,
-            'type' => BroadcastType::class,
             'scheduled_at' => 'datetime',
             'sent_at' => 'datetime',
             'total_recipients' => 'integer',
@@ -70,5 +67,11 @@ class Broadcast extends Model
     public function recipients(): HasMany
     {
         return $this->hasMany(BroadcastRecipient::class);
+    }
+
+    /** @return HasMany<BroadcastAttachment, $this> */
+    public function attachments(): HasMany
+    {
+        return $this->hasMany(BroadcastAttachment::class)->orderBy('sort_order');
     }
 }

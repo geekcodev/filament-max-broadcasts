@@ -6,7 +6,7 @@ namespace GeekCo\FilamentMaxBroadcasts\Tests\Unit\Jobs;
 
 use GeekCo\FilamentMaxBroadcasts\Enums\BroadcastRecipientStatus;
 use GeekCo\FilamentMaxBroadcasts\Enums\BroadcastStatus;
-use GeekCo\FilamentMaxBroadcasts\Enums\BroadcastType;
+use GeekCo\FilamentMaxBroadcasts\Enums\BroadcastTypes\News;
 use GeekCo\FilamentMaxBroadcasts\Events\BroadcastCompleted;
 use GeekCo\FilamentMaxBroadcasts\Jobs\SendBroadcastJob;
 use GeekCo\FilamentMaxBroadcasts\Models\Broadcast;
@@ -25,7 +25,7 @@ class SendBroadcastJobTest extends TestCase
     {
         return Broadcast::query()->create([
             'text' => 'Hello',
-            'type' => BroadcastType::News,
+            'type' => 'news',
             'status' => $status,
             'total_recipients' => 2,
         ]);
@@ -55,16 +55,16 @@ class SendBroadcastJobTest extends TestCase
                 static fn (Recipient $recipient): bool => $recipient->userId === 1 && $recipient->chatId === 11,
             ),
             'Hello',
-            null,
-            BroadcastType::News,
+            [],
+            News::News,
         );
         $sender->shouldReceive('send')->once()->with(
             Mockery::on(
                 static fn (Recipient $recipient): bool => $recipient->userId === 2 && $recipient->chatId === 22,
             ),
             'Hello',
-            null,
-            BroadcastType::News,
+            [],
+            News::News,
         );
 
         (new SendBroadcastJob($broadcast))->handle($sender);
@@ -97,6 +97,8 @@ class SendBroadcastJobTest extends TestCase
         $sent = $broadcast->recipients()->where('user_id', 1)->first();
         $failed = $broadcast->recipients()->where('user_id', 2)->first();
 
+        self::assertNotNull($sent);
+        self::assertNotNull($failed);
         self::assertSame(BroadcastRecipientStatus::Sent, $sent->status);
         self::assertSame(BroadcastRecipientStatus::Failed, $failed->status);
         self::assertSame('MAX API down', $failed->error);
@@ -115,6 +117,7 @@ class SendBroadcastJobTest extends TestCase
         $broadcast->refresh();
 
         self::assertSame(BroadcastStatus::Cancelled, $broadcast->status);
+        self::assertNotNull($broadcast->recipients()->first());
         self::assertSame(BroadcastRecipientStatus::Pending, $broadcast->recipients()->first()->status);
     }
 

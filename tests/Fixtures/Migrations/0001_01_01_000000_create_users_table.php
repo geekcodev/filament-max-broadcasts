@@ -16,7 +16,6 @@ return new class () extends Migration {
             $table->string('password');
             $table->boolean('can_view_broadcasts')->default(false);
             $table->boolean('can_create_broadcasts')->default(false);
-            $table->boolean('can_send_broadcasts')->default(false);
             $table->boolean('can_manage_broadcasts')->default(false);
             $table->rememberToken();
             $table->timestamps();

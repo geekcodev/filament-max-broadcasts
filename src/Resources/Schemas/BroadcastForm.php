@@ -8,12 +8,15 @@ use Filament\Forms\Components\DateTimePicker;
 use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\RichEditor;
 use Filament\Forms\Components\Select;
-use Filament\Infolists\Components\ImageEntry;
+use Filament\Infolists\Components\RepeatableEntry;
 use Filament\Infolists\Components\TextEntry;
+use Filament\Schemas\Components\Component;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
-use GeekCo\FilamentMaxBroadcasts\Enums\BroadcastType;
+use GeekCo\FilamentMaxBroadcasts\Enums\BroadcastTypes\News;
 use GeekCo\FilamentMaxBroadcasts\Models\Broadcast;
+use GeekCo\FilamentMaxBroadcasts\Models\BroadcastAttachment;
+use GeekCo\FilamentMaxBroadcasts\Support\BroadcastTypes;
 
 class BroadcastForm
 {
@@ -21,7 +24,16 @@ class BroadcastForm
     {
         $imageDisk = config()->string('filament-max-broadcasts.image.disk', 'public');
         $imageDirectory = config()->string('filament-max-broadcasts.image.directory', 'broadcasts');
-        $imageMaxKb = config()->integer('filament-max-broadcasts.image.max_kb', 10240);
+        $maxKb = config()->integer('filament-max-broadcasts.image.max_kb', 51200);
+        $mimeTypes = (array) config('filament-max-broadcasts.image.accepted_mime_types', []);
+        $imageMimeTypes = array_values(array_filter(
+            $mimeTypes,
+            static fn (mixed $mime): bool => is_string($mime) && str_starts_with($mime, 'image/'),
+        ));
+        $videoMimeTypes = array_values(array_filter(
+            $mimeTypes,
+            static fn (mixed $mime): bool => is_string($mime) && str_starts_with($mime, 'video/'),
+        ));
 
         return $schema
             ->components([
@@ -30,8 +42,8 @@ class BroadcastForm
                     ->schema([
                         Select::make('type')
                             ->label(__('filament-max-broadcasts::broadcasts.form.type'))
-                            ->options(BroadcastType::labels())
-                            ->default(BroadcastType::News->value)
+                            ->options(BroadcastTypes::options())
+                            ->default(News::News->value)
                             ->required()
                             ->columnSpanFull()
                             ->helperText(__('filament-max-broadcasts::broadcasts.form.type_helper')),
@@ -54,16 +66,31 @@ class BroadcastForm
                             ])
                             ->columnSpanFull()
                             ->helperText(__('filament-max-broadcasts::broadcasts.form.text_helper')),
-                        FileUpload::make('image_path')
-                            ->label(__('filament-max-broadcasts::broadcasts.form.image'))
+                        FileUpload::make('images')
+                            ->label(__('filament-max-broadcasts::broadcasts.form.images'))
                             ->disk($imageDisk)
                             ->directory($imageDirectory)
                             ->image()
                             ->imageEditor()
-                            ->maxSize($imageMaxKb)
-                            ->nullable()
+                            ->multiple()
+                            ->maxSize($maxKb)
                             ->columnSpanFull()
-                            ->visibleOn(['create', 'edit']),
+                            ->helperText(__('filament-max-broadcasts::broadcasts.form.images_helper')),
+                        FileUpload::make('videos')
+                            ->label(__('filament-max-broadcasts::broadcasts.form.videos'))
+                            ->disk($imageDisk)
+                            ->directory($imageDirectory)
+                            ->multiple()
+                            ->acceptedFileTypes($videoMimeTypes)
+                            ->maxSize($maxKb)
+                            ->columnSpanFull(),
+                        FileUpload::make('files')
+                            ->label(__('filament-max-broadcasts::broadcasts.form.files'))
+                            ->disk($imageDisk)
+                            ->directory($imageDirectory)
+                            ->multiple()
+                            ->maxSize($maxKb)
+                            ->columnSpanFull(),
                         DateTimePicker::make('scheduled_at')
                             ->label(__('filament-max-broadcasts::broadcasts.form.scheduled_at'))
                             ->helperText(__('filament-max-broadcasts::broadcasts.form.scheduled_at_helper'))
@@ -71,14 +98,10 @@ class BroadcastForm
                             ->after('now')
                             ->columnSpanFull(),
                     ]),
-                Section::make(__('filament-max-broadcasts::broadcasts.form.image_section'))
+                Section::make(__('filament-max-broadcasts::broadcasts.form.attachments_section'))
                     ->visibleOn('view')
                     ->schema([
-                        ImageEntry::make('image_path')
-                            ->label(__('filament-max-broadcasts::broadcasts.form.attached_image'))
-                            ->disk($imageDisk)
-                            ->imageSize(200)
-                            ->visible(fn (Broadcast $record): bool => $record->image_path !== null),
+                        self::attachmentsList(),
                     ]),
                 Section::make(__('filament-max-broadcasts::broadcasts.form.stats_section'))
                     ->visibleOn('view')
@@ -86,7 +109,7 @@ class BroadcastForm
                     ->schema([
                         TextEntry::make('type')
                             ->label(__('filament-max-broadcasts::broadcasts.form.stats_type'))
-                            ->state(fn (Broadcast $record): string => $record->type->label()),
+                            ->state(fn (Broadcast $record): string => BroadcastTypes::label($record->type)),
                         TextEntry::make('status')
                             ->label(__('filament-max-broadcasts::broadcasts.form.stats_status'))
                             ->state(fn (Broadcast $record): string => $record->status->label()),
@@ -100,6 +123,20 @@ class BroadcastForm
                             ->label(__('filament-max-broadcasts::broadcasts.form.stats_failed'))
                             ->state(fn (Broadcast $record): string => (string) $record->failed_count),
                     ]),
+            ]);
+    }
+
+    private static function attachmentsList(): Component
+    {
+        return RepeatableEntry::make('attachments')
+            ->label(__('filament-max-broadcasts::broadcasts.form.attachments'))
+            ->hiddenLabel()
+            ->schema([
+                TextEntry::make('path')
+                    ->label(__('filament-max-broadcasts::broadcasts.form.attachment_item'))
+                    ->state(function (BroadcastAttachment $attachment): string {
+                        return \sprintf('[%s] %s', $attachment->upload_type->value, $attachment->path);
+                    }),
             ]);
     }
 }

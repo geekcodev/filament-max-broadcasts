@@ -11,11 +11,21 @@ class BroadcastStatusTest extends TestCase
 {
     public function testValues(): void
     {
-        self::assertSame('scheduled', BroadcastStatus::Scheduled->value);
-        self::assertSame('running', BroadcastStatus::Running->value);
-        self::assertSame('completed', BroadcastStatus::Completed->value);
-        self::assertSame('cancelled', BroadcastStatus::Cancelled->value);
-        self::assertSame('failed', BroadcastStatus::Failed->value);
+        self::assertSame(['scheduled', 'running', 'completed', 'cancelled', 'failed'], $this->caseValues());
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function caseValues(): array
+    {
+        $values = [];
+
+        foreach (BroadcastStatus::cases() as $case) {
+            $values[] = $case->value;
+        }
+
+        return $values;
     }
 
     public function testLabelUsesTranslations(): void

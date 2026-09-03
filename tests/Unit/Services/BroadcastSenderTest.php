@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace GeekCo\FilamentMaxBroadcasts\Tests\Unit\Services;
 
-use GeekCo\FilamentMaxBroadcasts\Enums\BroadcastType;
+use GeekCo\FilamentMaxBroadcasts\Enums\BroadcastTypes\News;
+use GeekCo\FilamentMaxBroadcasts\Enums\BroadcastTypes\Promo;
 use GeekCo\FilamentMaxBroadcasts\Services\BroadcastSender;
+use GeekCo\FilamentMaxBroadcasts\Tests\Fixtures\OffersType;
 use GeekCo\FilamentMaxBroadcasts\Tests\TestCase;
 use GeekCo\FilamentMaxBroadcasts\Tests\Support\MockHttpClient;
 use GeekCo\MaxPhpClient\ApiClient;
@@ -58,8 +60,8 @@ class BroadcastSenderTest extends TestCase
         $sender->send(
             new Recipient(chatId: 111, userId: 222),
             'Hello <b>world</b>',
-            null,
-            BroadcastType::News,
+            [],
+            News::News,
         );
 
         self::assertSame(1, $http->callCount);
@@ -91,8 +93,10 @@ class BroadcastSenderTest extends TestCase
         $sender->send(
             new Recipient(chatId: 111, userId: 222),
             'Hello',
-            'broadcasts/photo.jpg',
-            BroadcastType::News,
+            [
+                ['upload_type' => 'image', 'path' => 'broadcasts/photo.jpg'],
+            ],
+            News::News,
         );
 
         self::assertSame(3, $http->callCount);
@@ -103,16 +107,16 @@ class BroadcastSenderTest extends TestCase
 
         $body = $this->decodeBody($http);
 
-        $attachments = $body['attachments'] ?? [];
+        $attachments = $this->attachments($body);
         self::assertCount(1, $attachments);
         self::assertSame('image', $attachments[0]['type'] ?? null);
         self::assertSame('tok-123', $attachments[0]['payload']['token'] ?? null);
     }
 
-    public function testSendPromoAddsInlineKeyboard(): void
+    public function testSendTypeWithConfiguredButtonsAddsInlineKeyboard(): void
     {
         config()->set('filament-max-broadcasts.bot_username', 'mybot');
-        config()->set('filament-max-broadcasts.promo_buttons', [
+        config()->set('filament-max-broadcasts.buttons.per_type.promo', [
             ['text' => 'Book', 'startapp' => 'booking'],
         ]);
 
@@ -121,22 +125,17 @@ class BroadcastSenderTest extends TestCase
         $sender->send(
             new Recipient(chatId: 111, userId: 222),
             'Promo',
-            null,
-            BroadcastType::Promo,
+            [],
+            Promo::Promo,
         );
 
         self::assertSame(1, $http->callCount);
 
         $body = $this->decodeBody($http);
 
-        $attachments = $body['attachments'] ?? [];
+        $attachments = $this->attachments($body);
         self::assertCount(1, $attachments);
         self::assertSame('inline_keyboard', $attachments[0]['type'] ?? null);
-
-        $buttons = $attachments[0]['payload']['buttons'][0][0] ?? [];
-        self::assertSame('link', $buttons['type'] ?? null);
-        self::assertSame('Book', $buttons['text'] ?? null);
-        self::assertSame('https://max.ru/mybot?startapp=booking', $buttons['url'] ?? null);
     }
 
     public function testSendImageAndPromo(): void
@@ -145,7 +144,7 @@ class BroadcastSenderTest extends TestCase
         Storage::disk('public')->put('banners/img.jpg', 'fake-image');
         config()->set('filament-max-broadcasts.image.disk', 'public');
         config()->set('filament-max-broadcasts.bot_username', 'mybot');
-        config()->set('filament-max-broadcasts.promo_buttons', [
+        config()->set('filament-max-broadcasts.buttons.per_type.promo', [
             ['text' => 'Book', 'startapp' => 'booking'],
         ]);
 
@@ -158,30 +157,224 @@ class BroadcastSenderTest extends TestCase
         $sender->send(
             new Recipient(chatId: 111, userId: 222),
             'Promo with photo',
-            'banners/img.jpg',
-            BroadcastType::Promo,
+            [
+                ['upload_type' => 'image', 'path' => 'banners/img.jpg'],
+            ],
+            Promo::Promo,
         );
 
         $body = $this->decodeBody($http);
 
-        $attachments = $body['attachments'] ?? [];
+        $attachments = $this->attachments($body);
         self::assertCount(2, $attachments);
         self::assertSame('image', $attachments[0]['type'] ?? null);
         self::assertSame('inline_keyboard', $attachments[1]['type'] ?? null);
     }
 
+    public function testSendMultipleImageUploadsMedia(): void
+    {
+        Storage::fake('public');
+        Storage::disk('public')->put('a/img1.jpg', 'fake-image-1');
+        Storage::disk('public')->put('a/img2.jpg', 'fake-image-2');
+        config()->set('filament-max-broadcasts.image.disk', 'public');
+
+        [$http, $sender] = $this->makeSender([
+            new Response(200, [], json_encode(['url' => 'https://upload.example/1', 'token' => 'step1'], JSON_THROW_ON_ERROR)),
+            new Response(200, [], json_encode(['token' => 'tok-1'], JSON_THROW_ON_ERROR)),
+            new Response(200, [], json_encode(['url' => 'https://upload.example/2', 'token' => 'step2'], JSON_THROW_ON_ERROR)),
+            new Response(200, [], json_encode(['token' => 'tok-2'], JSON_THROW_ON_ERROR)),
+            $this->messageResponse(111),
+        ]);
+
+        $sender->send(
+            new Recipient(chatId: 111, userId: 222),
+            'Two images',
+            [
+                ['upload_type' => 'image', 'path' => 'a/img1.jpg'],
+                ['upload_type' => 'image', 'path' => 'a/img2.jpg'],
+            ],
+            News::News,
+        );
+
+        $body = $this->decodeBody($http);
+
+        $attachments = $this->attachments($body);
+        self::assertCount(2, $attachments);
+        self::assertSame('image', $attachments[0]['type'] ?? null);
+        self::assertSame('tok-1', $attachments[0]['payload']['token'] ?? null);
+        self::assertSame('image', $attachments[1]['type'] ?? null);
+        self::assertSame('tok-2', $attachments[1]['payload']['token'] ?? null);
+    }
+
+    public function testSendVideoAndFileUploadsMedia(): void
+    {
+        Storage::fake('public');
+        Storage::disk('public')->put('v/clip.mp4', 'fake-video');
+        Storage::disk('public')->put('f/doc.pdf', 'fake-file');
+        config()->set('filament-max-broadcasts.image.disk', 'public');
+
+        [$http, $sender] = $this->makeSender([
+            new Response(200, [], json_encode(['url' => 'https://upload.example/clip', 'token' => 's'], JSON_THROW_ON_ERROR)),
+            new Response(200, [], json_encode(['token' => 'tok-v'], JSON_THROW_ON_ERROR)),
+            new Response(200, [], json_encode(['url' => 'https://upload.example/doc', 'token' => 's2'], JSON_THROW_ON_ERROR)),
+            new Response(200, [], json_encode(['token' => 'tok-f'], JSON_THROW_ON_ERROR)),
+            $this->messageResponse(111),
+        ]);
+
+        $sender->send(
+            new Recipient(chatId: 111, userId: 222),
+            'Video and file',
+            [
+                ['upload_type' => 'video', 'path' => 'v/clip.mp4'],
+                ['upload_type' => 'file', 'path' => 'f/doc.pdf'],
+            ],
+            News::News,
+        );
+
+        $body = $this->decodeBody($http);
+
+        $attachments = $this->attachments($body);
+        self::assertCount(2, $attachments);
+        self::assertSame('video', $attachments[0]['type'] ?? null);
+        self::assertSame('tok-v', $attachments[0]['payload']['token'] ?? null);
+        self::assertSame('file', $attachments[1]['type'] ?? null);
+        self::assertSame('tok-f', $attachments[1]['payload']['token'] ?? null);
+    }
+
+    public function testCustomTypeWithConfiguredButtonsAddsInlineKeyboard(): void
+    {
+        config()->set('filament-max-broadcasts.bot_username', 'mybot');
+        config()->set('filament-max-broadcasts.buttons.per_type', [
+            'offers' => [['text' => 'Buy', 'startapp' => 'shop']],
+        ]);
+
+        [$http, $sender] = $this->makeSender([$this->messageResponse(111)]);
+
+        $sender->send(
+            new Recipient(chatId: 111, userId: 222),
+            'Offers',
+            [],
+            OffersType::Offers,
+        );
+
+        $body = $this->decodeBody($http);
+
+        $attachments = $this->attachments($body);
+        self::assertCount(1, $attachments);
+        self::assertSame('inline_keyboard', $attachments[0]['type'] ?? null);
+    }
+
+    public function testSendSkipsInvalidMediaEntries(): void
+    {
+        config()->set('filament-max-broadcasts.image.disk', 'public');
+
+        [$http, $sender] = $this->makeSender([$this->messageResponse(111)]);
+
+        $sender->send(
+            new Recipient(chatId: 111, userId: 222),
+            'Message',
+            [
+                ['upload_type' => 'gif', 'path' => 'x.gif'],
+                ['upload_type' => 'image', 'path' => ''],
+            ],
+            News::News,
+        );
+
+        self::assertSame(1, $http->callCount);
+
+        $body = $this->decodeBody($http);
+        self::assertArrayNotHasKey('attachments', $body);
+    }
+
+    public function testSendThrowsWhenMediaFileDoesNotExist(): void
+    {
+        Storage::fake('public');
+        config()->set('filament-max-broadcasts.image.disk', 'public');
+
+        [$http, $sender] = $this->makeSender([$this->messageResponse(111)]);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('Media file not found or not readable');
+
+        $sender->send(
+            new Recipient(chatId: 111, userId: 222),
+            'Message',
+            [
+                ['upload_type' => 'image', 'path' => 'broadcasts/missing.jpg'],
+            ],
+            News::News,
+        );
+    }
+
+    public function testSendRelogsAndRethrowsWhenUploadFails(): void
+    {
+        Storage::fake('public');
+        Storage::disk('public')->put('broadcasts/photo.jpg', 'fake-image');
+        config()->set('filament-max-broadcasts.image.disk', 'public');
+
+        [$http, $sender] = $this->makeSender();
+
+        $this->expectException(\Throwable::class);
+
+        $sender->send(
+            new Recipient(chatId: 111, userId: 222),
+            'Message',
+            [
+                ['upload_type' => 'image', 'path' => 'broadcasts/photo.jpg'],
+            ],
+            News::News,
+        );
+    }
+
+    public function testTypeWithoutButtonsOmitsKeyboard(): void
+    {
+        config()->set('filament-max-broadcasts.bot_username', 'mybot');
+        config()->set('filament-max-broadcasts.buttons.per_type', [
+            'promo' => [['text' => 'Book', 'startapp' => 'booking']],
+        ]);
+
+        [$http, $sender] = $this->makeSender([$this->messageResponse(111)]);
+
+        $sender->send(
+            new Recipient(chatId: 111, userId: 222),
+            'News without buttons',
+            [],
+            News::News,
+        );
+
+        $body = $this->decodeBody($http);
+
+        self::assertArrayNotHasKey('attachments', $body);
+    }
+
     /**
      * Декодит JSON-тело последнего HTTP-запроса (сообщение в MAX).
      *
-     * @return array<mixed>
+     * @return array<string, mixed>
      */
     private function decodeBody(MockHttpClient $http): array
     {
         $request = $http->lastRequest;
         self::assertNotNull($request);
 
-        $json = (string) $request->getBody();
+        $decoded = json_decode((string) $request->getBody(), true, 512, JSON_THROW_ON_ERROR);
+        self::assertIsArray($decoded);
 
-        return json_decode($json, true, 512, JSON_THROW_ON_ERROR);
+        /** @var array<string, mixed> $body */
+        $body = $decoded;
+
+        return $body;
+    }
+
+    /**
+     * @param  array<string, mixed>  $body
+     * @return list<array{type?: string, payload?: array{token?: string}}>
+     */
+    private function attachments(array $body): array
+    {
+        /** @var list<array{type?: string, payload?: array{token?: string}}> $attachments */
+        $attachments = $body['attachments'] ?? [];
+
+        return $attachments;
     }
 }

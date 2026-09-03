@@ -67,7 +67,9 @@ class BroadcastRecipientsResolverTest extends TestCase
         $chats = (new BroadcastRecipientsResolver())->resolve();
 
         self::assertCount(1, $chats);
+        self::assertNotNull($chats->first());
         self::assertSame($newer->id, $chats->first()->id);
+        self::assertNotNull($chats->first());
         self::assertNotSame($older->id, $chats->first()->id);
     }
 

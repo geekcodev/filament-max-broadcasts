@@ -16,7 +16,9 @@ class FilamentMaxBroadcastsServiceProvider extends ServiceProvider
     {
         $this->mergeConfigFrom(__DIR__.'/../config/filament-max-broadcasts.php', 'filament-max-broadcasts');
 
-        $this->app->singleton(BroadcastSender::class, static fn (Container $app): BroadcastSender => new BroadcastSender($app->make(ApiClient::class)));
+        $this->app->singleton(BroadcastSender::class, static fn (Container $app): BroadcastSender => new BroadcastSender(
+            $app->make(ApiClient::class),
+        ));
 
         $this->app->singleton(BroadcastRecipientsResolver::class, static function (): BroadcastRecipientsResolver {
             /** @var class-string<BroadcastRecipientsResolver>|null $resolver */
