@@ -8,6 +8,7 @@ use Filament\Forms\Components\DateTimePicker;
 use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\RichEditor;
 use Filament\Forms\Components\Select;
+use Filament\Infolists\Components\ImageEntry;
 use Filament\Infolists\Components\RepeatableEntry;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Schemas\Components\Component;
@@ -17,6 +18,8 @@ use GeekCo\FilamentMaxBroadcasts\Enums\BroadcastTypes\News;
 use GeekCo\FilamentMaxBroadcasts\Models\Broadcast;
 use GeekCo\FilamentMaxBroadcasts\Models\BroadcastAttachment;
 use GeekCo\FilamentMaxBroadcasts\Support\BroadcastTypes;
+use GeekCo\MaxPhpClient\Enum\UploadType;
+use Illuminate\Support\Facades\Storage;
 
 class BroadcastForm
 {
@@ -75,6 +78,7 @@ class BroadcastForm
                             ->multiple()
                             ->maxSize($maxKb)
                             ->columnSpanFull()
+                            ->hiddenOn('view')
                             ->helperText(__('filament-max-broadcasts::broadcasts.form.images_helper')),
                         FileUpload::make('videos')
                             ->label(__('filament-max-broadcasts::broadcasts.form.videos'))
@@ -83,14 +87,16 @@ class BroadcastForm
                             ->multiple()
                             ->acceptedFileTypes($videoMimeTypes)
                             ->maxSize($maxKb)
-                            ->columnSpanFull(),
+                            ->columnSpanFull()
+                            ->hiddenOn('view'),
                         FileUpload::make('files')
                             ->label(__('filament-max-broadcasts::broadcasts.form.files'))
                             ->disk($imageDisk)
                             ->directory($imageDirectory)
                             ->multiple()
                             ->maxSize($maxKb)
-                            ->columnSpanFull(),
+                            ->columnSpanFull()
+                            ->hiddenOn('view'),
                         DateTimePicker::make('scheduled_at')
                             ->label(__('filament-max-broadcasts::broadcasts.form.scheduled_at'))
                             ->helperText(__('filament-max-broadcasts::broadcasts.form.scheduled_at_helper'))
@@ -128,15 +134,77 @@ class BroadcastForm
 
     private static function attachmentsList(): Component
     {
+        $imageDisk = config()->string('filament-max-broadcasts.image.disk', 'public');
+
         return RepeatableEntry::make('attachments')
             ->label(__('filament-max-broadcasts::broadcasts.form.attachments'))
             ->hiddenLabel()
             ->schema([
+                ImageEntry::make('path')
+                    ->label(__('filament-max-broadcasts::broadcasts.form.attachment_item'))
+                    ->disk($imageDisk)
+                    ->height(120)
+                    ->square()
+                    ->extraImgAttributes(['loading' => 'lazy'])
+                    ->state(
+                        static fn (BroadcastAttachment $attachment): ?string => self::attachmentPath($attachment),
+                    )
+                    ->visible(
+                        static fn (BroadcastAttachment $attachment): bool => self::isImagePreviewable($attachment),
+                    ),
                 TextEntry::make('path')
                     ->label(__('filament-max-broadcasts::broadcasts.form.attachment_item'))
-                    ->state(function (BroadcastAttachment $attachment): string {
-                        return \sprintf('[%s] %s', $attachment->upload_type->value, $attachment->path);
-                    }),
+                    ->html()
+                    ->state(
+                        static function (BroadcastAttachment $attachment): string {
+                            $url = self::attachmentFileUrl($attachment);
+                            $name = \sprintf('%s — %s', self::attachmentTypeLabel($attachment), basename($attachment->path));
+
+                            if ($url === null) {
+                                return \e($name);
+                            }
+
+                            return \sprintf(
+                                '<a href="%s" target="_blank" rel="noopener nofollow">%s</a>',
+                                \e($url),
+                                \e($name),
+                            );
+                        },
+                    )
+                    ->visible(
+                        static fn (BroadcastAttachment $attachment): bool => ! self::isImagePreviewable($attachment),
+                    ),
             ]);
+    }
+
+    private static function isImagePreviewable(BroadcastAttachment $attachment): bool
+    {
+        return $attachment->upload_type === UploadType::Image && self::attachmentPath($attachment) !== null;
+    }
+
+    private static function attachmentTypeLabel(BroadcastAttachment $attachment): string
+    {
+        return __("filament-max-broadcasts::broadcasts.form.attachment_types.{$attachment->upload_type->value}");
+    }
+
+    private static function attachmentPath(BroadcastAttachment $attachment): ?string
+    {
+        $path = trim($attachment->path);
+
+        return $path !== '' ? $path : null;
+    }
+
+    private static function attachmentFileUrl(BroadcastAttachment $attachment): ?string
+    {
+        $path = self::attachmentPath($attachment);
+
+        if ($path === null) {
+            return null;
+        }
+
+        $disk = config()->string('filament-max-broadcasts.image.disk', 'public');
+        $url = Storage::disk($disk)->url($path);
+
+        return $url !== '' ? $url : null;
     }
 }

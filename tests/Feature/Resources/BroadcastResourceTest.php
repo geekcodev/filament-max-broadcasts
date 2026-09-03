@@ -16,7 +16,9 @@ use GeekCo\FilamentMaxBroadcasts\Tests\Fixtures\TestUser;
 use GeekCo\FilamentMaxBroadcasts\Tests\TestCase;
 use GeekCo\LaravelMaxClient\Enums\MaxChatStatus;
 use GeekCo\LaravelMaxClient\Models\MaxChat;
+use GeekCo\MaxPhpClient\Enum\UploadType;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Facades\Storage;
 use Livewire\Livewire;
 
 class BroadcastResourceTest extends TestCase
@@ -126,6 +128,37 @@ class BroadcastResourceTest extends TestCase
         $this->actingAs($this->userWithoutBroadcastRights());
 
         $this->get(BroadcastResource::getUrl('view', ['record' => $broadcast]))->assertForbidden();
+    }
+
+    public function testViewPageShowsImagePreviewAndLinksForOtherFiles(): void
+    {
+        Storage::fake('public');
+
+        Storage::disk('public')->put('images/photo.png', 'fake');
+        Storage::disk('public')->put('files/doc.txt', 'fake');
+
+        $broadcast = $this->broadcast(BroadcastStatus::Completed);
+        $broadcast->attachments()->createMany([
+            ['upload_type' => UploadType::Image->value, 'path' => 'images/photo.png', 'sort_order' => 0],
+            ['upload_type' => UploadType::File->value, 'path' => 'files/doc.txt', 'sort_order' => 1],
+        ]);
+        $this->actingAs($this->adminUser());
+
+        $imageUrl = trim((string) Storage::disk('public')->url('images/photo.png'));
+        $fileUrl = trim((string) Storage::disk('public')->url('files/doc.txt'));
+
+        self::assertNotSame('', $imageUrl);
+        self::assertNotSame('', $fileUrl);
+
+        $html = $this->get(BroadcastResource::getUrl('view', ['record' => $broadcast]))
+            ->assertSuccessful()
+            ->getContent();
+
+        self::assertIsString($html);
+
+        self::assertStringContainsString('<img ', $html);
+        self::assertStringContainsString('src="'.\e($imageUrl).'"', $html);
+        self::assertStringContainsString('href="'.\e($fileUrl).'"', $html);
     }
 
     public function testSendNowAction(): void
