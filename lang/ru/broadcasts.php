@@ -46,6 +46,12 @@ return [
         'attachments_section' => 'Вложения',
         'attachments' => 'Прикреплённые файлы',
         'attachment_item' => 'Вложение',
+        'attachment_types' => [
+            'image' => 'Изображение',
+            'video' => 'Видео',
+            'audio' => 'Аудио',
+            'file' => 'Файл',
+        ],
         'stats_section' => 'Статистика',
         'stats_type' => 'Тип',
         'stats_status' => 'Статус',

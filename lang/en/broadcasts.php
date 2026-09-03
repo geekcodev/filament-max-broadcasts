@@ -46,6 +46,12 @@ return [
         'attachments_section' => 'Attachments',
         'attachments' => 'Attached files',
         'attachment_item' => 'Attachment',
+        'attachment_types' => [
+            'image' => 'Image',
+            'video' => 'Video',
+            'audio' => 'Audio',
+            'file' => 'File',
+        ],
         'stats_section' => 'Statistics',
         'stats_type' => 'Type',
         'stats_status' => 'Status',
