@@ -14,6 +14,7 @@ return [
     // Модели.
     'broadcast_model' => GeekCo\FilamentMaxBroadcasts\Models\Broadcast::class,
     'recipient_model' => GeekCo\FilamentMaxBroadcasts\Models\BroadcastRecipient::class,
+    'segment_model'   => GeekCo\FilamentMaxBroadcasts\Models\BroadcastSegment::class,
     'chats_model'     => GeekCo\LaravelMaxClient\Models\MaxChat::class,
     'user_model'      => env('FILAMENT_MAX_BROADCASTS_USER_MODEL', \Illuminate\Foundation\Auth\User::class),
 
@@ -66,6 +67,21 @@ return [
     // Получатели.
     'recipients' => [
         'resolver' => GeekCo\FilamentMaxBroadcasts\Services\BroadcastRecipientsResolver::class,
+    ],
+
+    // Согласие получателей на рассылку (opt-in через callback-кнопки).
+    // Слушатель HandleConsentCallback обрабатывает MessageCallback и складывает
+    // chat_id в сегмент «Новости и акции» (consent.segment_name). Прочие сегменты
+    // согласие не затрагивает: кнопка и записи привязаны только к этому сегменту.
+    // Payload кнопок: consent:<action>.
+    'consent' => [
+        'consent_model'       => GeekCo\FilamentMaxBroadcasts\Models\BroadcastConsent::class,
+        'segment_name'        => 'Новости и акции',
+        'payload_prefix'      => 'consent',
+        'request_message'     => 'Согласны ли вы получать наши новости и акции?',
+        'button_text_opt_in'  => 'Согласен',
+        'button_text_opt_out' => 'Не согласен',
+        'answer_notification' => 'Спасибо! Ваш ответ учтён.',
     ],
 
     // UI ресурса.

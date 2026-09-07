@@ -54,6 +54,8 @@ class ViewBroadcast extends ViewRecord
                         creator: $user,
                         attachments: $attachments,
                         type: $broadcast->type,
+                        chatIds: $broadcast->recipient_chat_ids,
+                        segments: array_values($broadcast->segments->all()),
                     );
 
                     Notification::make()

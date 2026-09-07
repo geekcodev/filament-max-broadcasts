@@ -36,6 +36,8 @@ class SendBroadcastJob implements ShouldQueue
 
     public int $timeout;
 
+    private const ERROR_MAX_LENGTH = 1000;
+
     /** @var list<int> */
     public array $backoff;
 
@@ -64,6 +66,10 @@ class SendBroadcastJob implements ShouldQueue
                 'broadcast_id' => $this->broadcast->id,
             ]);
 
+            // Намеренно delete(), а не release(): держатель lock'а доведёт работу до конца,
+            // а повторный прогон грозит двойной отправкой (pending ещё стоят) и повторным
+            // BroadcastCompleted. release() при малом tries дополнительно исчерпал бы попытки
+            // и пометил рассылку Failed.
             $this->delete();
 
             return;
@@ -80,7 +86,7 @@ class SendBroadcastJob implements ShouldQueue
     {
         $broadcast = $this->broadcast->fresh() ?? $this->broadcast;
 
-        if ($broadcast->status === BroadcastStatus::Cancelled) {
+        if ($broadcast->status === BroadcastStatus::Cancelled || $broadcast->status === BroadcastStatus::Completed) {
             return;
         }
 
@@ -99,7 +105,7 @@ class SendBroadcastJob implements ShouldQueue
         $batchSize = config()->integer('filament-max-broadcasts.queue.batch_size', 25);
 
         foreach ($recipients as $index => $recipient) {
-            if ($index > 0 && $index % $batchSize === 0 && $this->isCancelled($broadcast)) {
+            if ($index % $batchSize === 0 && $this->isCancelled($broadcast)) {
                 return;
             }
 
@@ -147,15 +153,17 @@ class SendBroadcastJob implements ShouldQueue
                 'sent_at' => now(),
             ])->save();
         } catch (Throwable $exception) {
+            $message = $exception->getMessage();
+
             Log::warning('Broadcast: recipient send failed.', [
                 'broadcast_id' => $this->broadcast->id,
                 'user_id' => $recipient->user_id,
                 'chat_id' => $recipient->chat_id,
-                'error' => $exception->getMessage(),
+                'error' => $message,
             ]);
             $recipient->forceFill([
                 'status' => BroadcastRecipientStatus::Failed,
-                'error' => $exception->getMessage(),
+                'error' => mb_substr($message, 0, self::ERROR_MAX_LENGTH),
             ])->save();
         }
     }

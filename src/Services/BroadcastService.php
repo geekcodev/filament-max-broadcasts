@@ -9,11 +9,13 @@ use GeekCo\FilamentMaxBroadcasts\Enums\BroadcastStatus;
 use GeekCo\FilamentMaxBroadcasts\Enums\BroadcastTypes\News;
 use GeekCo\FilamentMaxBroadcasts\Jobs\SendBroadcastJob;
 use GeekCo\FilamentMaxBroadcasts\Models\Broadcast;
+use GeekCo\FilamentMaxBroadcasts\Models\BroadcastSegment;
 use GeekCo\FilamentMaxBroadcasts\Support\BroadcastTypes;
 use GeekCo\LaravelMaxClient\Models\MaxChat;
 use GeekCo\MaxPhpClient\Enum\UploadType;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 
 class BroadcastService
@@ -26,6 +28,8 @@ class BroadcastService
 
     /**
      * @param  list<array{upload_type: string, path: string}>  $attachments
+     * @param  list<int>|null  $chatIds  Явно выбранные получатели (chat_id). Null — резолвим автоматически.
+     * @param  list<BroadcastSegment>  $segments  Сегменты получателей (опционально, для привязки к рассылке)
      */
     public function create(
         string $text,
@@ -33,39 +37,136 @@ class BroadcastService
         ?Model $creator = null,
         array $attachments = [],
         string $type = News::News->value,
+        ?array $chatIds = null,
+        array $segments = [],
     ): Broadcast {
         if (! BroadcastTypes::contains($type)) {
             throw new InvalidArgumentException(sprintf('Unknown broadcast type "%s".', $type));
         }
 
-        $chats = $this->resolver->resolve();
+        $this->validateAttachments($attachments);
+
+        $chats = $this->resolveChats($chatIds, $segments);
 
         $isFuture = $scheduledAt !== null && $scheduledAt->isFuture();
 
-        $broadcast = Broadcast::query()->create([
-            'text' => $this->sanitizer->sanitize($text),
-            'type' => $type,
-            'scheduled_at' => $scheduledAt,
-            'status' => $isFuture ? BroadcastStatus::Scheduled : BroadcastStatus::Running,
-            'total_recipients' => $chats->count(),
-            'created_by' => $creator?->getKey(),
-        ]);
+        $broadcast = DB::transaction(function () use (
+            $text,
+            $scheduledAt,
+            $creator,
+            $attachments,
+            $type,
+            $chatIds,
+            $segments,
+            $chats,
+            $isFuture,
+        ): Broadcast {
+            $broadcast = Broadcast::query()->create([
+                'text' => $this->sanitizer->sanitize($text),
+                'type' => $type,
+                'scheduled_at' => $scheduledAt,
+                'status' => $isFuture ? BroadcastStatus::Scheduled : BroadcastStatus::Running,
+                'total_recipients' => $chats->count(),
+                'created_by' => $creator?->getKey(),
+                'recipient_chat_ids' => $chatIds === null || $chatIds === [] ? null : $chatIds,
+            ]);
 
-        $this->saveAttachments($broadcast, $attachments);
+            if ($segments !== []) {
+                $broadcast->segments()->sync(array_map(
+                    static fn (BroadcastSegment $segment): int => $segment->id,
+                    $segments,
+                ));
+            }
 
-        $recipientsData = $chats->map(
-            static fn (MaxChat $chat): array => [
-                'user_id' => $chat->getAttribute('user_id'),
-                'chat_id' => $chat->getAttribute('chat_id'),
-                'status' => BroadcastRecipientStatus::Pending,
-            ],
-        )->all();
+            $this->saveAttachments($broadcast, $attachments);
 
-        $broadcast->recipients()->createMany($recipientsData);
+            $recipientsData = $chats->map(
+                static fn (MaxChat $chat): array => [
+                    'user_id' => $chat->getAttribute('user_id'),
+                    'chat_id' => $chat->getAttribute('chat_id'),
+                    'status' => BroadcastRecipientStatus::Pending,
+                ],
+            )->all();
+
+            $broadcast->recipients()->createMany($recipientsData);
+
+            return $broadcast;
+        });
 
         $this->dispatch($broadcast);
 
         return $broadcast;
+    }
+
+    /**
+     * @param  list<array{upload_type: string, path: string}>  $attachments
+     */
+    private function validateAttachments(array $attachments): void
+    {
+        foreach ($attachments as $index => $attachment) {
+            $uploadType = $attachment['upload_type'];
+            $path = $attachment['path'];
+
+            if (UploadType::tryFrom($uploadType) === null || trim($path) === '') {
+                throw new InvalidArgumentException(sprintf('Invalid broadcast attachment #%d.', $index));
+            }
+        }
+    }
+
+    /**
+     * Резолвим конкретный список получателей для рассылки.
+     *
+     * Приоритет:
+     * 1. Явно переданные chatIds — фильтруем по ним.
+     * 2. Иначе, если заданы сегменты — берём объединение их chat_ids.
+     * 3. Иначе — все активные чаты (дефолт).
+     *
+     * @param  list<int>|null  $chatIds
+     * @param  list<BroadcastSegment>  $segments
+     *
+     * @return \Illuminate\Support\Collection<int, MaxChat>
+     */
+    private function resolveChats(?array $chatIds, array $segments): \Illuminate\Support\Collection
+    {
+        $resolved = $this->resolver->resolve();
+
+        if ($chatIds !== null && $chatIds !== []) {
+            $ids = array_map('intval', $chatIds);
+
+            return $this->filterByChatIds($resolved, $ids);
+        }
+
+        if ($segments !== []) {
+            $ids = [];
+
+            foreach ($segments as $segment) {
+                $ids = [...$ids, ...array_map('intval', $segment->chat_ids ?? [])];
+            }
+
+            $ids = array_values(array_unique($ids));
+
+            return $this->filterByChatIds($resolved, $ids);
+        }
+
+        return $resolved;
+    }
+
+    /**
+     * @param  \Illuminate\Support\Collection<int, MaxChat>  $chats
+     * @param  list<int>  $ids
+     *
+     * @return \Illuminate\Support\Collection<int, MaxChat>
+     */
+    private function filterByChatIds(\Illuminate\Support\Collection $chats, array $ids): \Illuminate\Support\Collection
+    {
+        return $chats->filter(
+            static function (MaxChat $chat) use ($ids): bool {
+                /** @var int $chatId */
+                $chatId = $chat->getAttribute('chat_id');
+
+                return in_array($chatId, $ids, true);
+            },
+        )->values();
     }
 
     /**
@@ -76,16 +177,9 @@ class BroadcastService
         $rows = [];
 
         foreach ($attachments as $index => $attachment) {
-            $uploadType = $attachment['upload_type'];
-            $path = $attachment['path'];
-
-            if (UploadType::tryFrom($uploadType) === null || trim($path) === '') {
-                throw new InvalidArgumentException(sprintf('Invalid broadcast attachment #%d.', $index));
-            }
-
             $rows[] = [
-                'upload_type' => $uploadType,
-                'path' => $path,
+                'upload_type' => $attachment['upload_type'],
+                'path' => $attachment['path'],
                 'sort_order' => $index,
             ];
         }

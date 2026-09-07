@@ -7,11 +7,15 @@ namespace GeekCo\FilamentMaxBroadcasts;
 use Filament\Contracts\Plugin;
 use Filament\Panel;
 use GeekCo\FilamentMaxBroadcasts\Resources\BroadcastResource;
+use GeekCo\FilamentMaxBroadcasts\Resources\BroadcastSegmentResource;
 
 class FilamentMaxBroadcastsPlugin implements Plugin
 {
     /** @var class-string */
     protected string $resource = BroadcastResource::class;
+
+    /** @var class-string */
+    protected string $segmentResource = BroadcastSegmentResource::class;
 
     public static function make(): static
     {
@@ -29,6 +33,16 @@ class FilamentMaxBroadcastsPlugin implements Plugin
         return $this;
     }
 
+    /**
+     * @param  class-string  $segmentResource
+     */
+    public function segmentResource(string $segmentResource): static
+    {
+        $this->segmentResource = $segmentResource;
+
+        return $this;
+    }
+
     public function getId(): string
     {
         return 'filament-max-broadcasts';
@@ -36,7 +50,10 @@ class FilamentMaxBroadcastsPlugin implements Plugin
 
     public function register(Panel $panel): void
     {
-        $panel->resources([$this->resource]);
+        $panel->resources([
+            $this->resource,
+            $this->segmentResource,
+        ]);
     }
 
     public function boot(Panel $panel): void

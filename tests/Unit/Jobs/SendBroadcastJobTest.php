@@ -104,6 +104,22 @@ class SendBroadcastJobTest extends TestCase
         self::assertSame('MAX API down', $failed->error);
     }
 
+    public function testHandleStoresTruncatedRecipientError(): void
+    {
+        $broadcast = $this->createBroadcast(BroadcastStatus::Running);
+        $this->createRecipient($broadcast, 1, 11);
+
+        $sender = $this->mock(BroadcastSender::class);
+        $sender->shouldReceive('send')->once()->andThrow(new RuntimeException(str_repeat('x', 5000)));
+
+        (new SendBroadcastJob($broadcast))->handle($sender);
+
+        $failed = $broadcast->recipients()->first();
+
+        self::assertNotNull($failed);
+        self::assertSame(1000, mb_strlen((string) $failed->error));
+    }
+
     public function testHandleSkipsCancelledBroadcast(): void
     {
         $broadcast = $this->createBroadcast(BroadcastStatus::Cancelled);
@@ -119,6 +135,22 @@ class SendBroadcastJobTest extends TestCase
         self::assertSame(BroadcastStatus::Cancelled, $broadcast->status);
         self::assertNotNull($broadcast->recipients()->first());
         self::assertSame(BroadcastRecipientStatus::Pending, $broadcast->recipients()->first()->status);
+    }
+
+    public function testHandleSkipsAlreadyCompletedBroadcast(): void
+    {
+        $broadcast = $this->createBroadcast(BroadcastStatus::Completed);
+        $this->createRecipient($broadcast, 1, 11);
+
+        $sender = $this->mock(BroadcastSender::class);
+        $sender->shouldNotReceive('send');
+
+        (new SendBroadcastJob($broadcast))->handle($sender);
+
+        $broadcast->refresh();
+
+        self::assertSame(BroadcastStatus::Completed, $broadcast->status);
+        self::assertSame(0, $broadcast->delivered_count);
     }
 
     public function testHandleSkipsWhenLockIsHeld(): void

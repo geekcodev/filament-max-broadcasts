@@ -101,6 +101,8 @@ class BroadcastsTable
                             creator: $user,
                             attachments: $attachments,
                             type: $record->type,
+                            chatIds: $record->recipient_chat_ids,
+                            segments: array_values($record->segments->all()),
                         );
 
                         Notification::make()

@@ -12,10 +12,12 @@
   `max_chats`/`max_users`) и ядра `geekcodev/max-php-client` (Bot API MAX). Репозиторий/рабочая папка —
   `filament-max-broadcasts`, переиспользуемый автономный пакет.
 - **Что даёт.** Filament-ресурс «Рассылки» (`BroadcastResource`): создание (текст HTML, тип «Новость/Акция», медиав-
-  ложения — картинки/видео/файлы, отложенная отправка), сбор получателей из активных чатов `max_chats`, отправка через
-  MAX API с санитизацией HTML и настраиваемыми кнопками-диплинками для акций, статусы
-  `scheduled → running → completed/cancelled/failed` со счётчиками, очередь `SendBroadcastJob` с
-  локом/батчами/ретраями/отменой, страницы список/создание/просмотр и relation manager получателей.
+  ложения — картинки/видео/файлы, отложенная отправка), выбор получателей — несколько сегментов и/или конкретные чаты
+  (снимок `recipient_chat_ids`, повтор тем же людям), отправка через MAX API с санитизацией HTML и настраиваемыми
+  кнопками-диплинками, статусы `scheduled → running → completed/cancelled/failed` со счётчиками, очередь
+  `SendBroadcastJob` с локом/батчами/ретраями/отменой, страницы список/создание/просмотр и relation manager получателей.
+  Плюс два смежных модуля: сегменты получателей (`BroadcastSegmentResource` — именованные группы чатов) и opt-in согласие
+  на рассылку (callback-кнопки MAX, сегмент «Новости и акции», действие «Запросить согласие» на списке рассылок).
 - **Принцип.** Плагин самодостаточен для рассылок: модели `Broadcast`/`BroadcastRecipient`, сервисы, job и Filament-
   ресурс живут внутри пакета. От хост-приложения он ожидает только: опубликованные миграции laravel-max-client
   (`max_chats`/`max_users`), рабочую очередь и настройку прав. Механизмы laravel-max-client не дублируются — используем
@@ -37,10 +39,11 @@
 2. **Не коммить и не пушить без явного запроса пользователя.**
 3. Перед завершением любой задачи, менявшей код, прогони обязательный Gate (раздел 7) целиком. Результаты не подменяй;
    недоступный шаг честно указывай в отчёте, а не пропускай молча.
-4. Плагин реализуется как **самодостаточный пакет с нуля** — модели `Broadcast`/`BroadcastRecipient`, сервисы,
-   `SendBroadcastJob` и Filament-ресурс живут внутри и не зависят ни от чего вне пакета (кроме `laravel-max-client`,
-   `max-php-client` и ожиданий по миграциям/очереди). Источник истины по MAX API — `max-openapi` и пакетные классы
-   `laravel-max-client`/`max-php-client` (см. раздел 9).
+4. Плагин реализуется как **самодостаточный пакет с нуля** — модели
+   `Broadcast`/`BroadcastRecipient`/`BroadcastSegment`/`BroadcastConsent`, сервисы, jobs
+   (`SendBroadcastJob`/`SendConsentRequestsJob`), слушатель `HandleConsentCallback` и Filament-ресурсы живут внутри и не
+   зависят ни от чего вне пакета (кроме `laravel-max-client`, `max-php-client` и ожиданий по миграциям/очереди). Источник
+   истины по MAX API — `max-openapi` и пакетные классы `laravel-max-client`/`max-php-client` (см. раздел 9).
 5. Не выдумывай сигнатуры MAX API: источник истины — `GeekCo\MaxPhpClient\ApiClient` и спецификация
    `https://github.com/geekcodev/max-openapi`. Отправка сообщений — только через пакетные сервисы (`BroadcastSender`).
 6. Если для задачи чего-то не хватает (токен, сеть, контейнер) — скажи об этом, а не упрощай задачу молча.
@@ -61,40 +64,52 @@
 
 ```
 config/filament-max-broadcasts.php    publishable-конфиг (--tag=filament-max-broadcasts-config)
-database/migrations/                  миграции max_broadcasts / max_broadcast_recipients / max_broadcast_attachments (грузятся из пакета)
+database/migrations/                  миграции max_broadcasts / max_broadcast_recipients / max_broadcast_attachments / max_broadcast_segments / max_broadcast_consents / pivot max_broadcast_segment (грузятся из пакета)
 lang/{ru,en}/broadcasts.php           подписи UI ресурса «Рассылки»
 src/
   FilamentMaxBroadcastsServiceProvider.php  composition root: config/lang/migrations publish, биндинги сервисов
-  FilamentMaxBroadcastsPlugin.php           Filament v5 plugin: ресурс рассылок в панели
+  FilamentMaxBroadcastsPlugin.php           Filament v5 plugin: ресурсы «Рассылки» и «Сегменты» в панели
   Enums/
     BroadcastStatus.php                scheduled|running|completed|cancelled|failed
-    BroadcastTypes/News.php, Promo.php типы рассылок — backed-enum'ы, реализующие BroadcastTypeContract
     BroadcastRecipientStatus.php       pending|sent|failed
+    BroadcastConsentAction.php         opt_in|opt_out (ответы на запрос согласия)
+    BroadcastTypes/
+      News.php, Promo.php              типы рассылок — backed-enum'ы, реализующие BroadcastTypeContract
+      ConsentPoll.php                  тип-источник callback-кнопок согласия (для SendConsentRequestsJob)
   Contracts/BroadcastTypeContract.php  контракт типа рассылки (label/buttonRows/badgeColor)
   Events/BroadcastCompleted.php        событие завершения рассылки
   Models/
-    Broadcast.php                      max_broadcasts (creator(), recipients())
+    Broadcast.php                      max_broadcasts (creator(), recipients(), segments(), attachments())
     BroadcastRecipient.php             max_broadcast_recipients (broadcast(), maxChat())
     BroadcastAttachment.php            max_broadcast_attachments (broadcast(), uploadType)
-  Jobs/SendBroadcastJob.php            очередь: лок, батчи, ретраи, отмена, счётчики
+    BroadcastSegment.php               max_broadcast_segments — именованные группы чатов (chat_ids JSON, chat_count)
+    BroadcastConsent.php               max_broadcast_consents — факт opt_in/opt_out по паре (segment_id, chat_id)
+  Jobs/
+    SendBroadcastJob.php               очередь рассылки: лок, батчи, ретраи, отмена, счётчики
+    SendConsentRequestsJob.php         очередь запроса согласия: лок, пере-резолв кандидатов, батчи
+  Listeners/HandleConsentCallback.php  приём callback-ответов согласия (MaxUpdateReceived) + ответ sendAnswer
   Services/
-    BroadcastService.php               create(): сбор получателей + создание + dispatch
+    BroadcastService.php               create(): резолв получателей (chatIds → сегменты → все активные) + создание + dispatch
     BroadcastTextSanitizer.php         санитизация HTML под whitelist тегов MAX + toMaxHtml()
-    BroadcastRecipientsResolver.php    выбор получателей (активные чаты, дедуп по chat_id) — расширяемый
+    BroadcastRecipientsResolver.php    источник MaxChat (активные чаты, дедуп по chat_id) — расширяемый
     BroadcastSender.php                отправка в MAX: текст/медиавложения/кнопки-диплинки (uploadMedia + sendMessage)
+    ConsentService.php                 единая точка согласий: optIn/optOut/answeredChatIds, сегмент «Новости и акции»
+    ConsentRequestService.php          кандидаты на запрос согласия (активные без ответа) + dispatch джобы
   Support/
     BroadcastTypes.php                 реестр типов из конфига (instance/contains/options/label/badgeColor)
     BroadcastTypeDefaults.php          трейт дефолтного поведения типов (lang-подпись, кнопки из per_type)
+    ChatSelectionField.php             мультивыбор чатов с серверным поиском (Select: лимит 50, дедуп, фолбэк label)
   Resources/
     BroadcastResource.php              Filament-ресурс «Рассылки»
-    Schemas/BroadcastForm.php          форма создания/просмотра
-    Tables/BroadcastsTable.php         список (колонки, фильтры, действия)
-    Pages/{CreateBroadcast,ListBroadcasts,ViewBroadcast}.php
+    BroadcastSegmentResource.php       Filament-ресурс «Сегменты» (список/создание/редактирование)
+    Schemas/{BroadcastForm,BroadcastSegmentForm}.php
+    Tables/{BroadcastsTable,BroadcastSegmentsTable}.php
+    Pages/{CreateBroadcast,ListBroadcasts,ViewBroadcast,ListBroadcastSegments,CreateBroadcastSegment,EditBroadcastSegment}.php
     RelationManagers/BroadcastRecipientsRelationManager.php
 tests/                                PHPUnit + Orchestra Testbench
   Fixtures/                            AdminPanelProvider, TestUser, OffersType, миграция users, Gate broadcasts.*
-  Unit/                                enums, models, sanitizer, resolver, types, sender, service, job
-  Feature/                             BroadcastResource (листинг/создание/просмотр/действия)
+  Unit/                                enums, models, sanitizer, resolver, types, sender, service, job, consent
+  Feature/                             BroadcastResource + BroadcastSegmentResource (листинг/создание/просмотр/действия)
 Dockerfile                            PHP 8.4 (ghcr.io/geekcodev/php) + опциональный Xdebug
 docker-compose.yml                    сервис app, user 1000:1000, volume ./
 docker/config/usr/local/etc/php/conf.d/40-custom.ini  PHP-конфиг dev-контейнера (memory_limit=1G)
@@ -110,19 +125,24 @@ Filament-компонентах.
 
 ## 5. Архитектура и ключевые контракты
 
-- **Подключение**: `->plugin(FilamentMaxBroadcastsPlugin::make())` в PanelProvider. Регистрирует ресурс
-  `BroadcastResource`. Права (строки, `$user->can(...)`, совместимо со spatie/laravel-permission и Gate):
+- **Подключение**: `->plugin(FilamentMaxBroadcastsPlugin::make())` в PanelProvider. Регистрирует ресурсы
+  `BroadcastResource` и `BroadcastSegmentResource` (переопределяются через `->resource()` / `->segmentResource()`).
+  Права (строки, `$user->can(...)`, совместимо со spatie/laravel-permission и Gate):
   `permissions.view` (`broadcasts.view`), `permissions.create` (`broadcasts.create`),
   `permissions.manage` (`broadcasts.manage`).
-- **Получатели**: `BroadcastRecipientsResolver` — единственный источник списка `MaxChat` для рассылки (активные чаты,
-  дедуп по `chat_id`, сортировка по `last_activity_at`). Модель чата — `config('filament-max-broadcasts.chats_model')`
+- **Источник чатов**: `BroadcastRecipientsResolver` — источник списка `MaxChat` для рассылки (активные чаты, дедуп по
+  `chat_id`, сортировка по `last_activity_at`). Модель чата — `config('filament-max-broadcasts.chats_model')`
   (по умолчанию пакетный `GeekCo\LaravelMaxClient\Models\MaxChat`), статус — `MaxChatStatus::Active`.
-- **Создание рассылки**: `BroadcastService::create(text, scheduledAt, creator, attachments, type)` — резолвит
-  получателей, сохраняет `Broadcast` + вложения (`attachments`, `list<array{upload_type, path}>`) + `BroadcastRecipient`
-  s,
-  `dispatch()` через `SendBroadcastJob` (с `delay()` при будущем расписании). Текст санитизируется
-  `BroadcastTextSanitizer->sanitize()` при создании; невалидный вложение (несуществующий `UploadType`/пустой path) —
-  `InvalidArgumentException 'Invalid broadcast attachment #%d.'`.
+- **Получатели**: `BroadcastService::create(..., ?array $chatIds = null, array $segments = [])`. Приоритет резолва:
+  явные `chatIds` → объединение `chat_ids` выбранных сегментов → все активные чаты. Снимок фактических получателей
+  хранится в `recipient_chat_ids` рассылки (nullable, `[]` = всем активным) — источник истины для повтора; выбранные
+  сегменты привязываются через pivot `max_broadcast_segment` (история выбора). В UI — мультивыбор сегментов
+  (`Select multiple`) + ручная корректировка поиском активных чатов (серверно, только найденные); «Повторить» передаёт и сегменты, и снимок.
+- **Создание рассылки**: `BroadcastService::create(text, scheduledAt, creator, attachments, type, chatIds, segments)` —
+  резолвит получателей, сохраняет `Broadcast` + вложения (`attachments`, `list<array{upload_type, path}>`) +
+  `BroadcastRecipient`s, `segments()->sync()`, `dispatch()` через `SendBroadcastJob` (с `delay()` при будущем расписании).
+  Текст санитизируется `BroadcastTextSanitizer->sanitize()` при создании; невалидный вложение (несуществующий
+  `UploadType`/пустой path) — `InvalidArgumentException 'Invalid broadcast attachment #%d.'`.
 - **Отправка**: `SendBroadcastJob` — `Cache::lock("broadcast:{id}")`, статус `running`, батчи по `queue.batch_size`
   (25) с проверкой отмены и обновлением счётчиков, `sendTo()` через `BroadcastSender->send(new Recipient(chatId,
   userId), toMaxHtml(text), $media, type)`, где `$media` — `list<array{upload_type, path}>` из вложений рассылки; по
@@ -144,11 +164,20 @@ Filament-компонентах.
   `instance()/contains()/options()/label()/badgeColor()`; неизвестный токен fail-fast при создании и мягкий fallback
   (сырое значение/серый) в отображении. Лимиты глобальные и к типам не относятся: размер текста — 4000 (лимит API MAX),
   размер медиавложений — `image.max_kb`.
-- **Таблицы**: `max_broadcasts`, `max_broadcast_recipients` и `max_broadcast_attachments` (структура — наследие
+- **Согласие (opt-in)**: действие «Запросить согласие» на `ListBroadcasts` (под `permissions.create`) →
+  `ConsentRequestService::sendRequest()`: кандидаты — активные чаты без записи в `max_broadcast_consents` для сегмента
+  «Новости и акции» (`consent.segment_name`), `SendConsentRequestsJob` (лок, батчи) шлёт фиксированное сообщение с
+  callback-кнопками «Согласен»/«Не согласен» (`ConsentPoll`, payload `consent:<action>`). Ответы ловит
+  `HandleConsentCallback` (событие `MaxUpdateReceived`), через `ConsentService` делает upsert факта и добавляет/убирает
+  `chat_id` в сегменте согласий, после чего отвечает на нажатие `ApiClient::sendAnswer`. Одна актуальная запись на пару
+  `(segment_id, chat_id)`; `answeredChatIds()` — дедуп ответивших (их повторно не опрашивают, проигнорировавших — да).
+- **Таблицы**: `max_broadcasts`, `max_broadcast_recipients`, `max_broadcast_attachments`, `max_broadcast_segments`,
+  `max_broadcast_consents` и pivot `max_broadcast_segment` (структура — наследие
   `broadcasts`/`broadcast_recipients` из хоста, но с префиксом `max_` во избежание конфликтов; вложения — отдельная
   таблица по нескольку на рассылку). FK `created_by` → таблица `users` (модель —
   `config('filament-max-broadcasts.user_model')`). Миграции грузятся из пакета автоматически.
-- **Переопределение моделей**: `broadcast_model`/`recipient_model`/`chats_model`/`user_model` — конфигурируемы.
+- **Переопределение моделей**: `broadcast_model`/`recipient_model`/`segment_model`/`consent.consent_model`/
+  `chats_model`/`user_model` — конфигурируемы.
 
 ### Соглашения
 
