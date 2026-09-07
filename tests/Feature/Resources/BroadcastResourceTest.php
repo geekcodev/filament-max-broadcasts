@@ -6,12 +6,14 @@ namespace GeekCo\FilamentMaxBroadcasts\Tests\Feature\Resources;
 
 use GeekCo\FilamentMaxBroadcasts\Enums\BroadcastStatus;
 use GeekCo\FilamentMaxBroadcasts\Jobs\SendBroadcastJob;
+use GeekCo\FilamentMaxBroadcasts\Jobs\SendConsentRequestsJob;
 use GeekCo\FilamentMaxBroadcasts\Models\Broadcast;
 use GeekCo\FilamentMaxBroadcasts\Models\BroadcastRecipient;
 use GeekCo\FilamentMaxBroadcasts\Resources\BroadcastResource;
 use GeekCo\FilamentMaxBroadcasts\Resources\Pages\CreateBroadcast;
 use GeekCo\FilamentMaxBroadcasts\Resources\Pages\ListBroadcasts;
 use GeekCo\FilamentMaxBroadcasts\Resources\Pages\ViewBroadcast;
+use GeekCo\FilamentMaxBroadcasts\Services\ConsentService;
 use GeekCo\FilamentMaxBroadcasts\Tests\Fixtures\TestUser;
 use GeekCo\FilamentMaxBroadcasts\Tests\TestCase;
 use GeekCo\LaravelMaxClient\Enums\MaxChatStatus;
@@ -257,5 +259,54 @@ class BroadcastResourceTest extends TestCase
         self::assertSame(2, Broadcast::query()->count());
 
         Queue::assertPushed(SendBroadcastJob::class);
+    }
+
+    public function testRequestConsentActionIsVisibleForAdmin(): void
+    {
+        $this->actingAs($this->adminUser());
+
+        Livewire::test(ListBroadcasts::class)
+            ->assertSuccessful()
+            // @phpstan-ignore method.notFound
+            ->assertActionVisible('request_consent');
+    }
+
+    public function testRequestConsentActionIsHiddenWithoutCreatePermission(): void
+    {
+        $user = $this->userWithoutBroadcastRights();
+        $user->forceFill(['can_view_broadcasts' => true])->save();
+        $this->actingAs($user);
+
+        Livewire::test(ListBroadcasts::class)
+            ->assertSuccessful()
+            // @phpstan-ignore method.notFound
+            ->assertActionHidden('request_consent');
+    }
+
+    public function testRequestConsentActionDispatchesJob(): void
+    {
+        $this->activeChat();
+        $this->actingAs($this->adminUser());
+
+        Livewire::test(ListBroadcasts::class)
+            ->callAction('request_consent')
+            ->assertHasNoErrors();
+
+        Queue::assertPushed(SendConsentRequestsJob::class);
+    }
+
+    public function testRequestConsentActionSkipsWhenEveryoneAnswered(): void
+    {
+        $this->activeChat();
+
+        app(ConsentService::class)->optIn(11, 1);
+
+        $this->actingAs($this->adminUser());
+
+        Livewire::test(ListBroadcasts::class)
+            ->callAction('request_consent')
+            ->assertHasNoErrors();
+
+        Queue::assertNotPushed(SendConsentRequestsJob::class);
     }
 }

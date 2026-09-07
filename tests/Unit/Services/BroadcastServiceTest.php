@@ -7,7 +7,9 @@ namespace GeekCo\FilamentMaxBroadcasts\Tests\Unit\Services;
 use GeekCo\FilamentMaxBroadcasts\Enums\BroadcastRecipientStatus;
 use GeekCo\FilamentMaxBroadcasts\Enums\BroadcastStatus;
 use GeekCo\FilamentMaxBroadcasts\Jobs\SendBroadcastJob;
+use GeekCo\FilamentMaxBroadcasts\Models\Broadcast;
 use GeekCo\FilamentMaxBroadcasts\Models\BroadcastAttachment;
+use GeekCo\FilamentMaxBroadcasts\Models\BroadcastSegment;
 use GeekCo\FilamentMaxBroadcasts\Services\BroadcastRecipientsResolver;
 use GeekCo\FilamentMaxBroadcasts\Services\BroadcastService;
 use GeekCo\FilamentMaxBroadcasts\Services\BroadcastTextSanitizer;
@@ -161,6 +163,30 @@ class BroadcastServiceTest extends TestCase
         );
     }
 
+    public function testCreateWithInvalidAttachmentPersistsNothing(): void
+    {
+        $service = new BroadcastService(
+            new BroadcastTextSanitizer(),
+            $this->makeResolverWithChats(1, 11),
+        );
+
+        try {
+            $service->create(
+                text: 'Hi',
+                scheduledAt: null,
+                attachments: [
+                    ['upload_type' => 'gif', 'path' => 'broadcasts/x.gif'],
+                ],
+            );
+
+            self::fail('Expected InvalidArgumentException.');
+        } catch (InvalidArgumentException) {
+        }
+
+        self::assertSame(0, Broadcast::query()->count());
+        self::assertSame(0, BroadcastAttachment::query()->count());
+    }
+
     public function testCreateWithPromoType(): void
     {
         $service = new BroadcastService(
@@ -191,5 +217,116 @@ class BroadcastServiceTest extends TestCase
             scheduledAt: null,
             type: 'unknown-type',
         );
+    }
+
+    public function testCreateWithExplicitChatIdsFiltersRecipients(): void
+    {
+        $service = new BroadcastService(
+            new BroadcastTextSanitizer(),
+            $this->makeResolverWithChats(1, 11, 2, 22, 3, 33),
+        );
+
+        $broadcast = $service->create(
+            text: 'Selected only',
+            scheduledAt: null,
+            chatIds: [22, 33],
+        );
+
+        self::assertSame(2, $broadcast->total_recipients);
+        self::assertSame([22, 33], $broadcast->recipients->pluck('chat_id')->all());
+        self::assertSame([22, 33], $broadcast->recipient_chat_ids);
+    }
+
+    public function testCreateWithEmptyChatIdsSendsToAll(): void
+    {
+        $service = new BroadcastService(
+            new BroadcastTextSanitizer(),
+            $this->makeResolverWithChats(1, 11, 2, 22),
+        );
+
+        $broadcast = $service->create(
+            text: 'All chats',
+            scheduledAt: null,
+            chatIds: [],
+        );
+
+        self::assertSame(2, $broadcast->total_recipients);
+        self::assertNull($broadcast->recipient_chat_ids);
+    }
+
+    public function testCreateWithSegmentUsesSegmentChats(): void
+    {
+        $segment = BroadcastSegment::query()->create([
+            'name' => 'VIP',
+            'chat_ids' => [11, 22],
+        ]);
+
+        $service = new BroadcastService(
+            new BroadcastTextSanitizer(),
+            $this->makeResolverWithChats(1, 11, 2, 22, 3, 33),
+        );
+
+        $broadcast = $service->create(
+            text: 'Segment',
+            scheduledAt: null,
+            segments: [$segment],
+        );
+
+        self::assertSame(2, $broadcast->total_recipients);
+        self::assertSame([11, 22], $broadcast->recipients->pluck('chat_id')->all());
+        self::assertSame([$segment->id], $broadcast->segments->pluck('id')->all());
+        self::assertNull($broadcast->recipient_chat_ids);
+    }
+
+    public function testCreateWithMultipleSegmentsUnionsTheirChats(): void
+    {
+        $first = BroadcastSegment::query()->create([
+            'name' => 'VIP',
+            'chat_ids' => [11, 22],
+        ]);
+        $second = BroadcastSegment::query()->create([
+            'name' => 'Employees',
+            'chat_ids' => [33],
+        ]);
+
+        $service = new BroadcastService(
+            new BroadcastTextSanitizer(),
+            $this->makeResolverWithChats(1, 11, 2, 22, 3, 33),
+        );
+
+        $broadcast = $service->create(
+            text: 'Union',
+            scheduledAt: null,
+            segments: [$first, $second],
+        );
+
+        self::assertSame(3, $broadcast->total_recipients);
+        self::assertSame([11, 22, 33], $broadcast->recipients->pluck('chat_id')->all());
+        self::assertSame([$first->id, $second->id], $broadcast->segments->pluck('id')->all());
+    }
+
+    public function testCreateWithExplicitChatIdsOverridesSegment(): void
+    {
+        $segment = BroadcastSegment::query()->create([
+            'name' => 'VIP',
+            'chat_ids' => [11, 22, 33],
+        ]);
+
+        $service = new BroadcastService(
+            new BroadcastTextSanitizer(),
+            $this->makeResolverWithChats(1, 11, 2, 22, 3, 33),
+        );
+
+        $broadcast = $service->create(
+            text: 'Adjusted from segment',
+            scheduledAt: null,
+            chatIds: [11],
+            segments: [$segment],
+        );
+
+        self::assertSame(1, $broadcast->total_recipients);
+        self::assertSame([11], $broadcast->recipients->pluck('chat_id')->all());
+        self::assertSame([11], $broadcast->recipient_chat_ids);
+        self::assertSame([$segment->id], $broadcast->segments->pluck('id')->all());
     }
 }

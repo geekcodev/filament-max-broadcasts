@@ -56,7 +56,8 @@ class BroadcastResource extends Resource
         /** @var string|null $group */
         $group = config('filament-max-broadcasts.ui.navigation_group');
 
-        return $group;
+        return $group
+            ?? __('filament-max-broadcasts::broadcasts.resource.navigation_group');
     }
 
     public static function getNavigationIcon(): string|BackedEnum|Htmlable|null

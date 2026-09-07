@@ -23,6 +23,8 @@ return new class () extends Migration {
             $table->foreignId('created_by')->nullable()
                 ->comment('Автор рассылки (модель user_model)')
                 ->constrained('users')->nullOnDelete();
+            $table->json('recipient_chat_ids')->nullable()
+                ->comment('Выбранные chat_id получателей (JSON-массив; null — все из сегментов/все активные)');
             $table->timestamps();
 
             $table->index('status');

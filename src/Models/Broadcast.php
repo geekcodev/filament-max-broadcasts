@@ -8,6 +8,7 @@ use GeekCo\FilamentMaxBroadcasts\Enums\BroadcastStatus;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
@@ -21,9 +22,12 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property int $delivered_count
  * @property int $failed_count
  * @property int|null $created_by
+ * @property list<int>|null $recipient_chat_ids
  * @property \Illuminate\Support\Carbon|null $created_at
  * @property \Illuminate\Support\Carbon|null $updated_at
  * @property \Illuminate\Database\Eloquent\Collection<int, BroadcastAttachment> $attachments
+ * @property \Illuminate\Database\Eloquent\Collection<int, BroadcastRecipient> $recipients
+ * @property \Illuminate\Database\Eloquent\Collection<int, BroadcastSegment> $segments
  */
 #[Fillable([
     'text',
@@ -35,6 +39,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
     'delivered_count',
     'failed_count',
     'created_by',
+    'recipient_chat_ids',
 ])]
 class Broadcast extends Model
 {
@@ -51,6 +56,7 @@ class Broadcast extends Model
             'total_recipients' => 'integer',
             'delivered_count' => 'integer',
             'failed_count' => 'integer',
+            'recipient_chat_ids' => 'array',
         ];
     }
 
@@ -67,6 +73,17 @@ class Broadcast extends Model
     public function recipients(): HasMany
     {
         return $this->hasMany(BroadcastRecipient::class);
+    }
+
+    /** @return BelongsToMany<BroadcastSegment, $this> */
+    public function segments(): BelongsToMany
+    {
+        return $this->belongsToMany(
+            BroadcastSegment::class,
+            'max_broadcast_segment',
+            'broadcast_id',
+            'segment_id',
+        );
     }
 
     /** @return HasMany<BroadcastAttachment, $this> */

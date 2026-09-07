@@ -17,7 +17,9 @@ use Filament\Schemas\Schema;
 use GeekCo\FilamentMaxBroadcasts\Enums\BroadcastTypes\News;
 use GeekCo\FilamentMaxBroadcasts\Models\Broadcast;
 use GeekCo\FilamentMaxBroadcasts\Models\BroadcastAttachment;
+use GeekCo\FilamentMaxBroadcasts\Models\BroadcastSegment;
 use GeekCo\FilamentMaxBroadcasts\Support\BroadcastTypes;
+use GeekCo\FilamentMaxBroadcasts\Support\ChatSelectionField;
 use GeekCo\MaxPhpClient\Enum\UploadType;
 use Illuminate\Support\Facades\Storage;
 
@@ -104,6 +106,37 @@ class BroadcastForm
                             ->after('now')
                             ->columnSpanFull(),
                     ]),
+                Section::make(__('filament-max-broadcasts::broadcasts.form.recipients_section'))
+                    ->hiddenOn('view')
+                    ->description(__('filament-max-broadcasts::broadcasts.form.recipients_section_description'))
+                    ->schema([
+                        Select::make('segment_ids')
+                            ->label(__('filament-max-broadcasts::broadcasts.form.segments'))
+                            ->placeholder(__('filament-max-broadcasts::broadcasts.form.segment_default'))
+                            ->options(self::segmentOptions())
+                            ->multiple()
+                            ->helperText(__('filament-max-broadcasts::broadcasts.form.segments_helper'))
+                            ->live()
+                            ->afterStateUpdated(static function (callable $set, ?array $state): void {
+                                if ($state === null || $state === []) {
+                                    return;
+                                }
+
+                                $chatIds = [];
+
+                                foreach (BroadcastSegment::query()->whereIn('id', $state)->get() as $segment) {
+                                    $chatIds = [...$chatIds, ...($segment->chat_ids ?? [])];
+                                }
+
+                                $set('recipient_chat_ids', array_values(array_unique($chatIds)));
+                            })
+                            ->columnSpanFull(),
+                        ChatSelectionField::make(
+                            'recipient_chat_ids',
+                            __('filament-max-broadcasts::broadcasts.form.recipients'),
+                            helperText: __('filament-max-broadcasts::broadcasts.form.recipients_helper'),
+                        ),
+                    ]),
                 Section::make(__('filament-max-broadcasts::broadcasts.form.attachments_section'))
                     ->visibleOn('view')
                     ->schema([
@@ -119,6 +152,21 @@ class BroadcastForm
                         TextEntry::make('status')
                             ->label(__('filament-max-broadcasts::broadcasts.form.stats_status'))
                             ->state(fn (Broadcast $record): string => $record->status->label()),
+                        TextEntry::make('recipient_group')
+                            ->label(__('filament-max-broadcasts::broadcasts.form.stats_recipients'))
+                            ->state(static function (Broadcast $record): string {
+                                $names = [];
+
+                                foreach ($record->segments as $segment) {
+                                    if ($segment->name !== '') {
+                                        $names[] = $segment->name;
+                                    }
+                                }
+
+                                return $names === []
+                                    ? __('filament-max-broadcasts::broadcasts.form.no_segment')
+                                    : implode(', ', $names);
+                            }),
                         TextEntry::make('sent_at')
                             ->label(__('filament-max-broadcasts::broadcasts.form.stats_sent_at'))
                             ->state(fn (Broadcast $record): string => $record->sent_at?->format('d.m.Y H:i') ?? '—'),
@@ -130,6 +178,26 @@ class BroadcastForm
                             ->state(fn (Broadcast $record): string => (string) $record->failed_count),
                     ]),
             ]);
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private static function segmentOptions(): array
+    {
+        /** @var array<int, string> $options */
+        $options = [];
+
+        foreach (BroadcastSegment::query()->orderBy('name')->get() as $segment) {
+            /** @var int $key */
+            $key = $segment->getKey();
+            /** @var string $name */
+            $name = $segment->name;
+
+            $options[$key] = $name;
+        }
+
+        return $options;
     }
 
     private static function attachmentsList(): Component
