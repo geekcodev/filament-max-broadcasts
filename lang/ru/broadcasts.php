@@ -142,6 +142,9 @@ return [
 
     'consent_table' => [
         'id' => 'ID',
+        'chat_type' => 'Тип',
+        'name' => 'Имя',
+        'anonymous_chat' => 'Чат :id',
         'chat_id' => 'MAX chat_id',
         'segment' => 'Сегмент',
         'action' => 'Действие',

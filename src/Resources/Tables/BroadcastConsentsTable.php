@@ -9,6 +9,10 @@ use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use GeekCo\FilamentMaxBroadcasts\Enums\BroadcastConsentAction;
+use GeekCo\FilamentMaxBroadcasts\Models\BroadcastConsent;
+use GeekCo\FilamentMaxBroadcasts\Support\ChatSelectionField;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Model;
 
 class BroadcastConsentsTable
 {
@@ -17,10 +21,34 @@ class BroadcastConsentsTable
         $managePermission = config()->string('filament-max-broadcasts.permissions.manage', 'broadcasts.manage');
 
         return $table
+            ->modifyQueryUsing(
+                static fn (Builder $query): Builder => $query->with(['segment', 'chat.maxUser']),
+            )
             ->columns([
                 TextColumn::make('id')
                     ->label(__('filament-max-broadcasts::broadcasts.consent_table.id'))
                     ->sortable(),
+                TextColumn::make('chat_type')
+                    ->label(__('filament-max-broadcasts::broadcasts.consent_table.chat_type'))
+                    ->badge()
+                    ->getStateUsing(
+                        static fn (BroadcastConsent $record): string => $record->chat instanceof Model
+                            ? ChatSelectionField::chatTypeLabel($record->chat)
+                            : '',
+                    )
+                    ->color(
+                        static fn (BroadcastConsent $record): string => $record->chat instanceof Model
+                            ? ChatSelectionField::chatTypeColor($record->chat)
+                            : 'gray',
+                    ),
+                TextColumn::make('name')
+                    ->label(__('filament-max-broadcasts::broadcasts.consent_table.name'))
+                    ->getStateUsing(
+                        static fn (BroadcastConsent $record): string => $record->chat instanceof Model
+                            ? ChatSelectionField::displayName($record->chat)
+                            : __('filament-max-broadcasts::broadcasts.consent_table.anonymous_chat', ['id' => $record->chat_id]),
+                    )
+                    ->searchable(),
                 TextColumn::make('chat_id')
                     ->label(__('filament-max-broadcasts::broadcasts.consent_table.chat_id'))
                     ->sortable()

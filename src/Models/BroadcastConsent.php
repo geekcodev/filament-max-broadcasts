@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace GeekCo\FilamentMaxBroadcasts\Models;
 
 use GeekCo\FilamentMaxBroadcasts\Enums\BroadcastConsentAction;
+use GeekCo\LaravelMaxClient\Models\MaxChat;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -19,6 +20,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property \Illuminate\Support\Carbon|null $created_at
  * @property \Illuminate\Support\Carbon|null $updated_at
  * @property BroadcastSegment $segment
+ * @property MaxChat|null $chat
  */
 #[Fillable([
     'segment_id',
@@ -54,5 +56,19 @@ class BroadcastConsent extends Model
     public function segment(): BelongsTo
     {
         return $this->belongsTo(BroadcastSegment::class, 'segment_id');
+    }
+
+    /**
+     * Чат, из которого получен ответ. Ищем по chat_id (в MAX он глобально
+     * уникален для личного диалога), по аналогии с broadcast_recipients.
+     *
+     * @return BelongsTo<MaxChat, $this>
+     */
+    public function chat(): BelongsTo
+    {
+        /** @var class-string<MaxChat> $chatsModel */
+        $chatsModel = config('filament-max-broadcasts.chats_model', MaxChat::class);
+
+        return $this->belongsTo($chatsModel, 'chat_id', 'chat_id');
     }
 }
