@@ -58,6 +58,17 @@ class HandleConsentCallbackTest extends TestCase
         return new Response(200, [], json_encode(['success' => true], JSON_THROW_ON_ERROR));
     }
 
+    private function messageResponse(): Response
+    {
+        return new Response(200, [], json_encode([
+            'message' => [
+                'recipient' => ['chat_id' => 111],
+                'timestamp' => 1700000000,
+                'body' => ['mid' => 'mid-1', 'seq' => 1, 'text' => 'text'],
+            ],
+        ], JSON_THROW_ON_ERROR));
+    }
+
     /**
      * @param  array<string, mixed>  $data
      */
@@ -71,9 +82,20 @@ class HandleConsentCallbackTest extends TestCase
         $data = [
             'update_type' => 'message_callback',
             'chat_id' => $chatId,
+            'message_id' => 'mid-poll',
             'callback' => [
                 'callback_id' => 'cb-1',
                 'payload' => $payload,
+                'message' => [
+                    'recipient' => ['chat_id' => $chatId],
+                    'timestamp' => 1700000000,
+                    'body' => [
+                        'mid' => 'mid-poll',
+                        'seq' => 1,
+                        'text' => 'Согласны ли вы получать наши новости и акции?',
+                        'format' => 'html',
+                    ],
+                ],
             ],
         ];
 
@@ -129,23 +151,39 @@ class HandleConsentCallbackTest extends TestCase
 
     public function testOptInRecordsConsentAndAnswersCallback(): void
     {
-        [$http, , $listener] = $this->makeListener([$this->successResponse()]);
+        [$http, , $listener] = $this->makeListener([
+            $this->successResponse(), // editMessage (убрать кнопки)
+            $this->messageResponse(), // sendMessage (подтверждение)
+            $this->successResponse(), // sendAnswer
+        ]);
 
         $update = $this->callbackUpdate('consent:opt_in', 111, 222);
 
         $listener->handle(new MaxUpdateReceived($update));
 
-        self::assertSame(1, $http->callCount);
-        self::assertNotNull($http->lastRequest);
-        self::assertSame('POST', $http->lastRequest->getMethod());
+        self::assertSame(3, $http->callCount);
 
-        $uri = (string) $http->lastRequest->getUri();
-        self::assertStringContainsString('/answers', $uri);
-        self::assertStringContainsString('callback_id=cb-1', $uri);
+        self::assertSame('PUT', $http->requests[0]->getMethod());
+        $editUri = (string) $http->requests[0]->getUri();
+        self::assertStringContainsString('/messages', $editUri);
+        self::assertStringContainsString('message_id=mid-poll', $editUri);
+        $editBody = json_decode((string) $http->requests[0]->getBody(), true, 512, JSON_THROW_ON_ERROR);
+        self::assertIsArray($editBody);
+        self::assertSame('Согласны ли вы получать наши новости и акции?', $editBody['text'] ?? null);
+        self::assertArrayNotHasKey('attachments', $editBody);
 
-        $body = json_decode((string) $http->lastRequest->getBody(), true, 512, JSON_THROW_ON_ERROR);
-        self::assertIsArray($body);
-        self::assertSame('Спасибо! Ваш ответ учтён.', $body['notification'] ?? null);
+        self::assertSame('POST', $http->requests[1]->getMethod());
+        $sendUri = (string) $http->requests[1]->getUri();
+        self::assertStringContainsString('/messages', $sendUri);
+        self::assertStringContainsString('chat_id=111', $sendUri);
+        $sendBody = json_decode((string) $http->requests[1]->getBody(), true, 512, JSON_THROW_ON_ERROR);
+        self::assertIsArray($sendBody);
+        self::assertSame('Вы согласились на получение рассылок.', $sendBody['text'] ?? null);
+
+        self::assertSame('POST', $http->requests[2]->getMethod());
+        $answerUri = (string) $http->requests[2]->getUri();
+        self::assertStringContainsString('/answers', $answerUri);
+        self::assertStringContainsString('callback_id=cb-1', $answerUri);
 
         self::assertSame([111], $this->service->consentChatIds());
 
@@ -161,17 +199,57 @@ class HandleConsentCallbackTest extends TestCase
         $this->service->optIn(111, 222);
         $this->service->optIn(333);
 
-        [$http, , $listener] = $this->makeListener([$this->successResponse()]);
+        [$http, , $listener] = $this->makeListener([
+            $this->successResponse(),
+            $this->messageResponse(),
+            $this->successResponse(),
+        ]);
 
         $update = $this->callbackUpdate('consent:opt_out', 111, 222);
 
         $listener->handle(new MaxUpdateReceived($update));
 
-        self::assertSame(1, $http->callCount);
+        self::assertSame(3, $http->callCount);
         self::assertSame([333], $this->service->consentChatIds());
+
+        $editBody = json_decode((string) $http->requests[0]->getBody(), true, 512, JSON_THROW_ON_ERROR);
+        self::assertIsArray($editBody);
+        self::assertSame('Согласны ли вы получать наши новости и акции?', $editBody['text'] ?? null);
+        self::assertArrayNotHasKey('attachments', $editBody);
+
+        $sendBody = json_decode((string) $http->requests[1]->getBody(), true, 512, JSON_THROW_ON_ERROR);
+        self::assertIsArray($sendBody);
+        self::assertSame('Вы отказались от получения рассылок.', $sendBody['text'] ?? null);
 
         $consent = BroadcastConsent::query()->where('chat_id', 111)->first();
         self::assertNotNull($consent);
         self::assertSame(BroadcastConsentAction::OptOut, $consent->action);
+    }
+
+    public function testConfirmationStillSentWhenMessageTextUnavailable(): void
+    {
+        [$http, , $listener] = $this->makeListener([
+            $this->messageResponse(),
+            $this->successResponse(),
+        ]);
+
+        $update = $this->makeUpdate([
+            'update_type' => 'message_callback',
+            'chat_id' => 111,
+            'callback' => [
+                'callback_id' => 'cb-1',
+                'payload' => 'consent:opt_in',
+            ],
+        ]);
+
+        $listener->handle(new MaxUpdateReceived($update));
+
+        self::assertSame(2, $http->callCount);
+        self::assertSame('POST', $http->requests[0]->getMethod());
+        self::assertStringContainsString('/messages', (string) $http->requests[0]->getUri());
+        $sendBody = json_decode((string) $http->requests[0]->getBody(), true, 512, JSON_THROW_ON_ERROR);
+        self::assertIsArray($sendBody);
+        self::assertSame('Вы согласились на получение рассылок.', $sendBody['text'] ?? null);
+        self::assertStringContainsString('/answers', (string) $http->requests[1]->getUri());
     }
 }

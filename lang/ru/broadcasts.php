@@ -31,6 +31,13 @@ return [
         'failed' => 'Ошибка',
     ],
 
+    'chat_types' => [
+        'dialog' => 'Диалог',
+        'chat' => 'Группа',
+        'channel' => 'Канал',
+        'unknown' => 'Чат',
+    ],
+
     'resource' => [
         'label' => 'Рассылка',
         'plural_label' => 'Рассылки',
