@@ -75,6 +75,25 @@ class BroadcastSegmentResourceTest extends TestCase
         self::assertSame(2, $segment->chat_count);
     }
 
+    public function testCreateSegmentWithEmptyChatIds(): void
+    {
+        $this->actingAs($this->adminUser());
+
+        Livewire::test(CreateBroadcastSegment::class)
+            ->fillForm([
+                'name' => 'Newsletters',
+                'chat_ids' => [],
+            ])
+            ->call('create')
+            ->assertHasNoFormErrors();
+
+        /** @var BroadcastSegment $segment */
+        $segment = BroadcastSegment::query()->where('name', 'Newsletters')->firstOrFail();
+
+        self::assertSame([], $segment->chat_ids);
+        self::assertSame(0, $segment->chat_count);
+    }
+
     public function testCreateBroadcastWithSegmentAndManualRecipients(): void
     {
         $this->actingAs($this->adminUser());

@@ -23,6 +23,11 @@ return [
             'opt_in' => 'Agree',
             'opt_out' => 'Disagree',
         ],
+        'resource' => [
+            'label' => 'Consent',
+            'plural_label' => 'Consents',
+            'navigation_label' => 'Consents',
+        ],
     ],
 
     'recipient_status' => [
@@ -133,6 +138,16 @@ return [
             'no_description' => '—',
             'created_at' => 'Created',
         ],
+    ],
+
+    'consent_table' => [
+        'id' => 'ID',
+        'chat_id' => 'MAX chat_id',
+        'segment' => 'Segment',
+        'action' => 'Action',
+        'source' => 'Source',
+        'created_at' => 'Date',
+        'filter_action' => 'Action',
     ],
 
     'notifications' => [
