@@ -16,4 +16,18 @@ enum BroadcastConsentAction: string
             self::OptOut => __('filament-max-broadcasts::broadcasts.consent.action.opt_out'),
         };
     }
+
+    /**
+     * @return array<string, string>
+     */
+    public static function labels(): array
+    {
+        $labels = [];
+
+        foreach (self::cases() as $case) {
+            $labels[$case->value] = $case->label();
+        }
+
+        return $labels;
+    }
 }

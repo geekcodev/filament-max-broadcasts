@@ -23,6 +23,11 @@ return [
             'opt_in' => 'Согласен',
             'opt_out' => 'Не согласен',
         ],
+        'resource' => [
+            'label' => 'Согласие',
+            'plural_label' => 'Согласия',
+            'navigation_label' => 'Согласия',
+        ],
     ],
 
     'recipient_status' => [
@@ -133,6 +138,16 @@ return [
             'no_description' => '—',
             'created_at' => 'Создан',
         ],
+    ],
+
+    'consent_table' => [
+        'id' => 'ID',
+        'chat_id' => 'MAX chat_id',
+        'segment' => 'Сегмент',
+        'action' => 'Действие',
+        'source' => 'Источник',
+        'created_at' => 'Дата',
+        'filter_action' => 'Действие',
     ],
 
     'notifications' => [
