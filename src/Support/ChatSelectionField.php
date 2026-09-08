@@ -115,23 +115,12 @@ class ChatSelectionField
     public static function labelFor(Model $chat): string
     {
         $chatId = self::chatIdOf($chat);
-        $typeValue = self::chatTypeValue($chat);
-
-        [$color, $labelKey] = match ($typeValue) {
-            'dialog' => ['success', 'dialog'],
-            'chat' => ['info', 'chat'],
-            'channel' => ['warning', 'channel'],
-            default => ['gray', 'unknown'],
-        };
-
-        /** @var string $typeLabel */
-        $typeLabel = __("filament-max-broadcasts::broadcasts.chat_types.{$labelKey}");
 
         $badge = sprintf(
             '<span class="fi-badge fi-size-sm" style="background-color:var(--%s-50);color:var(--%s-700)">%s</span>',
-            $color,
-            $color,
-            e($typeLabel),
+            self::chatTypeColor($chat),
+            self::chatTypeColor($chat),
+            e(self::chatTypeLabel($chat)),
         );
 
         return sprintf(
@@ -140,6 +129,31 @@ class ChatSelectionField
             e(self::displayName($chat)),
             $chatId,
         );
+    }
+
+    public static function chatTypeLabel(Model $chat): string
+    {
+        $labelKey = match (self::chatTypeValue($chat)) {
+            'dialog' => 'dialog',
+            'chat' => 'chat',
+            'channel' => 'channel',
+            default => 'unknown',
+        };
+
+        /** @var string $label */
+        $label = __("filament-max-broadcasts::broadcasts.chat_types.{$labelKey}");
+
+        return $label;
+    }
+
+    public static function chatTypeColor(Model $chat): string
+    {
+        return match (self::chatTypeValue($chat)) {
+            'dialog' => 'success',
+            'chat' => 'info',
+            'channel' => 'warning',
+            default => 'gray',
+        };
     }
 
     public static function displayName(Model $chat): string

@@ -10,6 +10,9 @@ use GeekCo\FilamentMaxBroadcasts\Models\BroadcastSegment;
 use GeekCo\FilamentMaxBroadcasts\Resources\BroadcastConsentResource;
 use GeekCo\FilamentMaxBroadcasts\Tests\Fixtures\TestUser;
 use GeekCo\FilamentMaxBroadcasts\Tests\TestCase;
+use GeekCo\LaravelMaxClient\Enums\MaxChatStatus;
+use GeekCo\LaravelMaxClient\Models\MaxChat;
+use GeekCo\MaxPhpClient\Enum\ChatType;
 
 class BroadcastConsentResourceTest extends TestCase
 {
@@ -78,5 +81,29 @@ class BroadcastConsentResourceTest extends TestCase
             ->assertSee('22')
             ->assertSee(BroadcastConsentAction::OptIn->label())
             ->assertSee(BroadcastConsentAction::OptOut->label());
+    }
+
+    public function testIndexPageShowsChatNameAndType(): void
+    {
+        $segment = $this->createSegment();
+
+        BroadcastConsent::query()->create([
+            'segment_id' => $segment->id,
+            'chat_id' => 11,
+            'action' => BroadcastConsentAction::OptIn,
+        ]);
+
+        MaxChat::query()->create([
+            'user_id' => 1,
+            'chat_id' => 11,
+            'status' => MaxChatStatus::Active,
+            'chat_type' => ChatType::Dialog,
+        ]);
+
+        $this->actingAs($this->adminUser());
+
+        $this->get(BroadcastConsentResource::getUrl('index'))
+            ->assertSuccessful()
+            ->assertSee(__('filament-max-broadcasts::broadcasts.chat_types.dialog'));
     }
 }
