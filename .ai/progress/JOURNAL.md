@@ -15,14 +15,62 @@
 
 ---
 
+## [2026-09-08] Ответ на callback согласия: убрать кнопки и прислать подтверждение в чат
+
+- Сделано: после нажатия на кнопку «Согласен»/«Не согласен» в MAX теперь (1) **кнопки убираются** из исходного
+  сообщения — `ApiClient::editMessage(messageId, NewMessageBody)`, messageId из `$update->messageId` (фолбэк
+  `$callback->message?->body?->mid`); (2) **в чат приходит подтверждающее сообщение** — `ApiClient::sendMessage`
+  с текстом из конфига; (3) `sendAnswer` подтверждает callback с тем же текстом (обязателен параметр — без него
+  `InvalidArgumentException`). Каждая операция обёрнута в try/catch `MaxApiException` с логированием. В конфиге
+  `consent.answer_notification` заменён на `answer_notification_opt_in` / `answer_notification_opt_out`. **Ревью (
+  production-grade)**: `editMessage` редактирует пустым телом нельзя — MAX-овский `PUT /messages` это полная замена
+  тела, поэтому текст опроса передаётся обратно (`callback.message.body.text`), иначе текст очистится. Если текст
+  недоступен — edit пропускается (warning), подтверждение всё равно уходит.
+- Тесты: `HandleConsentCallbackTest` — update с `message_id` + `callback.message.body` (text/format); opt-in/opt-out
+  проверяют 3 вызова (PUT /messages с сохранённым текстом и без attachments, POST /messages с текстом подтверждения,
+  POST /answers с callback_id) и конкретные тексты сообщений; добавлен тест graceful degradation (нет текста → edit
+  пропущен, 2 вызова). Прочие тесты (ignore non-callback/foreign/unknown) перепроверены.
+- Gate: lint 0, analyse 0 (исправлено `nullsafe.neverNull`), test 154 (442 assertions), audit 0 критичных.
+- Подробности: `sessions/2026-09-08-consent-callback-otvet-messages.md`
+
+## [2026-09-07] Улучшен выбор получателей в сегментах: бейдж типа + имя + ID, список чатов при открытии
+
+- Сделано: по замечанию пользователя к `ChatSelectionField` (используется в `BroadcastSegmentForm.chat_ids` и
+  `BroadcastForm.recipient_chat_ids`) — (1) селект теперь **показывает список** получателей при открытии (был только
+  поиск без списка): `options()` заменён с `[]` на closure, возвращающий активные чаты по `last_activity_at` (лимит 50,
+  дедуп по `chat_id`), что даёт `hasDynamicOptions=true` в Filament v5 → опции подгружаются на каждом открытии через
+  `getOptionsUsing`; (2) метка опции переработана: **бейдж типа чата + имя + `(ID: …)`** вместо `title ?? chat_id
+  (ID: chat_id)` (у `max_chats` из laravel-max-client нет `title` — выводилось «id (ID: id)»).
+- Логика имени: `title` из переопределённого `chats_model` → для диалога имя из `maxUser`
+  (`name` → first+last → `username`) → фолбэк `chat_id`. Для групп/каналов названия в реестре нет (хранится только
+  профиль пользователя), поэтому фолбэк — `chat_id`; сам чат всё равно различим бейджем.
+- Бейдж: `<span class="fi-badge fi-size-sm">` с инлайн-цветом из CSS-переменных Filament (`success/info/warning/gray`),
+  `allowHtml()` на селекте (безопасно: `e()` для имени и подписи типа, ID числом через `%d`). Подписи типов — lang
+  `chat_types.{dialog,chat,channel,unknown}` (ru/en).
+- Поиск расширен: помимо `chat_id` LIKE теперь ищет и по имени (first/last/name/username) через `orWhereHas('maxUser')`;
+  запросы с `with('maxUser')` (нет N+1), PHPStan-safe хелперы `chatIdOf()`/`stringAttr()` вместо кастов `mixed`.
+- Тесты: `ChatSelectionFieldTest` переписан — `options()` (порядок/дедуп/исключение stopped), поиск по id и имени,
+  дедуп, фолбэк к raw-значению, `labelFor`: диалог (бейдж «Диалог» + «Иван Петров» + `(ID: 11)`), группа (бейдж
+  `--info-50`, фолбэк имени `22`), неизвестный тип (бейдж «Чат», серый). Итого 151 тест / 419 assertions.
+- **Доп. аудит production-grade (вопрос пользователя)**: найдено и исправлено 2 замечания — (1) **XSS (A03)**:
+  фолбэк `optionLabels()` для значений не из реестра отдавался без `e()`, а селект теперь `allowHtml()` → значение
+  рендерилось через innerHTML (вектор при тамперированном Livewire-state); исправлено `e((string) $value)` + тест
+  `<script>`-экранирования; (2) `labelFor` подставлял сырой `chat_type` в ключ lang → потенциальный вывод raw-значения и
+  неверный цвет; нормализовано общим `match` (цвет+`labelKey`), для неизвестных — «Чат»/gray; тест через
+  переопределённую модель без enum-каста (стандартный `MaxChat` кастит `chat_type` в `ChatType`-enum, поэтому ветка
+  unknown — defensive для переопределяемой `chats_model`).
+- Gate: lint 0, analyse 0, test 153 (423 assertions), audit 0 критичных (после `--ignore-unreachable` — сетевой glitch
+  packagist при первом запуске).
+- Подробности: `sessions/2026-09-07-chat-selection-badge-list.md`
+
 ## [2026-09-07] Закрыт tradeoff: серверный поиск чатов вместо CheckboxList
 
 - Сделано: по команде «поправь tradeoff» убран последний остаточный tradeoff аудита — CheckboxList форм, грузивший **все
   активные чаты в память** на каждый рендер. Вместо него — общий `Support\ChatSelectionField` (searchable `Select`
   multiple): `options([])` + `getSearchResultsUsing`/`getOptionLabelsUsing`, поиск серверно по `chat_id` (LIKE) среди
   активных, лимит 50 результатов, дедупликация `unique('chat_id')` по коллекции, метка
-  `sprintf('%s (ID: %s)', title ?? chat_id, chatId)`, фолбэк-метка для выбранных, но более не существующих чатов —
-  сырое значение.
+  `sprintf('%s (ID: %s)', title ?? chat_id, chatId)`, фолбэк-метка для выбранных, но более не существующих чатов — сырое
+  значение.
 - Использован в обоих местах: поле `chat_ids` (`BroadcastSegmentForm`) и получатели `recipient_chat_ids`
   (`BroadcastForm`, рядом остаётся `segment_ids` с `afterStateUpdated`); оба CheckboxList и приватные
   `chatOptions()`/`chatCheckboxList()` удалены.
@@ -43,12 +91,12 @@
 - Сделано: аудит незакоммиченной части v1.0.2 → вердикт «соответствует AGENTS.md, есть реальные замечания». По команде
   «исправь все»: (1) `BroadcastService::create()` — валидация вложений до любых DB-запросов + всё создание (broadcast,
   segments sync, вложения, recipients) в `DB::transaction()`, dispatch после коммита (устранён «висяк»-Broadcast при
-  невалидном вложении); (2) `ConsentService::resolveConsentSegment()` — уважает `segment_model` из конфига (был
-  хардкод `BroadcastSegment`); (3) `ConsentService::record()` — `chat_ids` сегмента пересчитываются атомарно из
+  невалидном вложении); (2) `ConsentService::resolveConsentSegment()` — уважает `segment_model` из конфига (был хардкод
+  `BroadcastSegment`); (3) `ConsentService::record()` — `chat_ids` сегмента пересчитываются атомарно из
   `max_broadcast_consents` (opt-in) в транзакции вместо read-modify-write (устранён lost update при параллельных
   callback'ах); (4) `SendBroadcastJob` — guard повторного прогона по Completed, проверка отмены с индекса 0 батча,
   `error` получателя в БД обрезается до 1000 символов (лог полный); (5) `delete()` в lock-guard джоб **оставлен
-  осознанно** и задокументирован (release() дал бы двойную отправку/ложный Failed) — отказ от собственного раннего
+  осознанно** и задокументирован (release () дал бы двойную отправку/ложный Failed) — отказ от собственного раннего
   замечания после разбора рисков.
 - Тесты: +4 (orphan-рассылок нет при ошибке вложения; `segment_model` в ConsentService через fixture `OffersSegment`;
   skip Completed; тruncate error). Итого 144 теста / 402 assertions.
@@ -56,7 +104,8 @@
   виртуализация, вне объёма). PHPStan: `array_map('intval')`/`(int)$mixed` не проходят level max → выборка через каст
   моделей, как в `answeredChatIds()`.
 - Gate: lint 0, analyse 0, test 144 (402 assertions), audit 0 критичных.
-- Также в сессии: создан `RELEASE-v1.0.2.md`, обновлены `AGENTS.md` и `README.md` (сегменты, выбор получателей, согласие).
+- Также в сессии: создан `RELEASE-v1.0.2.md`, обновлены `AGENTS.md` и `README.md` (сегменты, выбор получателей,
+  согласие).
 - Подробности: `sessions/2026-09-07-production-grade-pravki.md`
 
 ## [2026-09-05] Мультивыбор сегментов при создании рассылки (многие-ко-многим)

@@ -31,6 +31,13 @@ return [
         'failed' => 'Failed',
     ],
 
+    'chat_types' => [
+        'dialog' => 'Dialog',
+        'chat' => 'Group',
+        'channel' => 'Channel',
+        'unknown' => 'Chat',
+    ],
+
     'resource' => [
         'label' => 'Broadcast',
         'plural_label' => 'Broadcasts',

@@ -81,7 +81,8 @@ return [
         'request_message'     => 'Согласны ли вы получать наши новости и акции?',
         'button_text_opt_in'  => 'Согласен',
         'button_text_opt_out' => 'Не согласен',
-        'answer_notification' => 'Спасибо! Ваш ответ учтён.',
+        'answer_notification_opt_in'  => 'Вы согласились на получение рассылок.',
+        'answer_notification_opt_out' => 'Вы отказались от получения рассылок.',
     ],
 
     // UI ресурса.
