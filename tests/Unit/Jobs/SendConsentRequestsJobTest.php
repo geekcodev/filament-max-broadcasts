@@ -12,6 +12,7 @@ use GeekCo\FilamentMaxBroadcasts\Services\BroadcastTextSanitizer;
 use GeekCo\FilamentMaxBroadcasts\Services\ConsentRequestService;
 use GeekCo\FilamentMaxBroadcasts\Services\ConsentService;
 use GeekCo\FilamentMaxBroadcasts\Tests\TestCase;
+use GeekCo\FilamentMaxBroadcasts\Tests\Fixtures\Chats;
 use GeekCo\LaravelMaxClient\Enums\MaxChatStatus;
 use GeekCo\LaravelMaxClient\Models\MaxChat;
 use GeekCo\MaxPhpClient\Dto\Recipient;
@@ -23,9 +24,7 @@ class SendConsentRequestsJobTest extends TestCase
 {
     private function activeChat(int $chatId, ?int $userId = null): MaxChat
     {
-        return MaxChat::query()->create([
-            'user_id' => $userId ?? $chatId,
-            'chat_id' => $chatId,
+        return Chats::create($chatId, $userId ?? $chatId, [
             'status' => MaxChatStatus::Active,
         ]);
     }

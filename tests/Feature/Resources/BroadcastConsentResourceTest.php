@@ -9,9 +9,9 @@ use GeekCo\FilamentMaxBroadcasts\Models\BroadcastConsent;
 use GeekCo\FilamentMaxBroadcasts\Models\BroadcastSegment;
 use GeekCo\FilamentMaxBroadcasts\Resources\BroadcastConsentResource;
 use GeekCo\FilamentMaxBroadcasts\Tests\Fixtures\TestUser;
+use GeekCo\FilamentMaxBroadcasts\Tests\Fixtures\Chats;
 use GeekCo\FilamentMaxBroadcasts\Tests\TestCase;
 use GeekCo\LaravelMaxClient\Enums\MaxChatStatus;
-use GeekCo\LaravelMaxClient\Models\MaxChat;
 use GeekCo\MaxPhpClient\Enum\ChatType;
 
 class BroadcastConsentResourceTest extends TestCase
@@ -93,9 +93,7 @@ class BroadcastConsentResourceTest extends TestCase
             'action' => BroadcastConsentAction::OptIn,
         ]);
 
-        MaxChat::query()->create([
-            'user_id' => 1,
-            'chat_id' => 11,
+        Chats::create(11, 1, [
             'status' => MaxChatStatus::Active,
             'chat_type' => ChatType::Dialog,
         ]);

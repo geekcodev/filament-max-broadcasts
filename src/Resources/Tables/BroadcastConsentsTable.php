@@ -10,6 +10,7 @@ use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use GeekCo\FilamentMaxBroadcasts\Enums\BroadcastConsentAction;
 use GeekCo\FilamentMaxBroadcasts\Models\BroadcastConsent;
+use GeekCo\FilamentMaxBroadcasts\Support\ChatRegistry;
 use GeekCo\FilamentMaxBroadcasts\Support\ChatSelectionField;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
@@ -22,7 +23,13 @@ class BroadcastConsentsTable
 
         return $table
             ->modifyQueryUsing(
-                static fn (Builder $query): Builder => $query->with(['segment', 'chat.maxUser']),
+                static fn (Builder $query): Builder => $query->with([
+                    'segment',
+                    ...array_map(
+                        static fn (string $relation): string => 'chat.'.$relation,
+                        ChatRegistry::userRelations(),
+                    ),
+                ]),
             )
             ->columns([
                 TextColumn::make('id')

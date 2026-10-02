@@ -6,8 +6,9 @@ namespace GeekCo\FilamentMaxBroadcasts\Tests\Unit\Support;
 
 use GeekCo\FilamentMaxBroadcasts\Support\ChatSelectionField;
 use GeekCo\FilamentMaxBroadcasts\Tests\TestCase;
+use GeekCo\FilamentMaxBroadcasts\Tests\Fixtures\Chats;
+use GeekCo\FilamentMaxBroadcasts\Tests\Fixtures\RawChat;
 use GeekCo\LaravelMaxClient\Enums\MaxChatStatus;
-use GeekCo\LaravelMaxClient\Models\MaxChat;
 use GeekCo\LaravelMaxClient\Models\MaxUser;
 use GeekCo\MaxPhpClient\Enum\ChatType;
 
@@ -22,20 +23,20 @@ class ChatSelectionFieldTest extends TestCase
 
     public function testOptionsReturnsRecentActiveChatsWithoutDuplicates(): void
     {
-        MaxChat::query()->create([
-            'user_id' => 1,
-            'chat_id' => 11,
+        Chats::create(11, 1, [
             'status' => MaxChatStatus::Active,
             'last_activity_at' => now()->subMinutes(5),
         ]);
-        MaxChat::query()->create([
-            'user_id' => 2,
-            'chat_id' => 22,
+        Chats::create(22, 2, [
             'status' => MaxChatStatus::Active,
             'last_activity_at' => now(),
         ]);
-        MaxChat::query()->create(['user_id' => 3, 'chat_id' => 33, 'status' => MaxChatStatus::Stopped]);
-        MaxChat::query()->create(['user_id' => 4, 'chat_id' => 11, 'status' => MaxChatStatus::Active]);
+        Chats::create(33, 3, [
+            'status' => MaxChatStatus::Stopped,
+        ]);
+        Chats::create(11, 4, [
+            'status' => MaxChatStatus::Active,
+        ]);
 
         $options = ChatSelectionField::options();
 
@@ -44,15 +45,21 @@ class ChatSelectionFieldTest extends TestCase
 
     public function testSearchResultsMatchesChatIdAndName(): void
     {
-        MaxChat::query()->create(['user_id' => 1, 'chat_id' => 11, 'status' => MaxChatStatus::Active]);
-        MaxChat::query()->create(['user_id' => 2, 'chat_id' => 22, 'status' => MaxChatStatus::Active]);
+        Chats::create(11, 1, [
+            'status' => MaxChatStatus::Active,
+        ]);
+        Chats::create(22, 2, [
+            'status' => MaxChatStatus::Active,
+        ]);
         MaxUser::query()->create([
             'user_id' => 2,
             'first_name' => 'Иван',
             'last_name' => 'Петров',
             'username' => 'ivan_petrov',
         ]);
-        MaxChat::query()->create(['user_id' => 3, 'chat_id' => 33, 'status' => MaxChatStatus::Stopped]);
+        Chats::create(33, 3, [
+            'status' => MaxChatStatus::Stopped,
+        ]);
 
         self::assertSame([11], array_keys(ChatSelectionField::searchResults('11')));
         self::assertSame([22], array_keys(ChatSelectionField::searchResults('Иван')));
@@ -62,15 +69,19 @@ class ChatSelectionFieldTest extends TestCase
 
     public function testSearchResultsDeduplicatesByChatId(): void
     {
-        MaxChat::query()->create(['user_id' => 1, 'chat_id' => 11, 'status' => MaxChatStatus::Active]);
-        MaxChat::query()->create(['user_id' => 2, 'chat_id' => 11, 'status' => MaxChatStatus::Active]);
+        Chats::create(11, 1, [
+            'status' => MaxChatStatus::Active,
+        ]);
+        Chats::addUser(11, 2);
 
         self::assertSame([11], array_keys(ChatSelectionField::searchResults('11')));
     }
 
     public function testOptionLabelsResolveActiveChatsAndFallBackToRawValue(): void
     {
-        MaxChat::query()->create(['user_id' => 1, 'chat_id' => 11, 'status' => MaxChatStatus::Active]);
+        Chats::create(11, 1, [
+            'status' => MaxChatStatus::Active,
+        ]);
 
         $labels = ChatSelectionField::optionLabels([11, 999]);
 
@@ -102,9 +113,7 @@ class ChatSelectionFieldTest extends TestCase
             'username' => 'ivan_petrov',
             'name' => 'Иван Петров',
         ]);
-        $chat = MaxChat::query()->create([
-            'user_id' => 1,
-            'chat_id' => 11,
+        $chat = Chats::create(11, 1, [
             'status' => MaxChatStatus::Active,
             'chat_type' => ChatType::Dialog,
         ]);
@@ -120,9 +129,7 @@ class ChatSelectionFieldTest extends TestCase
 
     public function testLabelFallsBackToChatIdForGroupWithoutTitle(): void
     {
-        $chat = MaxChat::query()->create([
-            'user_id' => 2,
-            'chat_id' => 22,
+        $chat = Chats::create(22, 2, [
             'status' => MaxChatStatus::Active,
             'chat_type' => ChatType::Chat,
         ]);
@@ -134,16 +141,29 @@ class ChatSelectionFieldTest extends TestCase
         self::assertStringContainsString('var(--info-50)', $label);
     }
 
+    public function testLabelForChannelUsesWarningBadge(): void
+    {
+        // `title` есть только в реестре 1.2, поэтому атрибут задаётся напрямую.
+        $chat = new RawChat(['chat_id' => 44, 'chat_type' => ChatType::Channel, 'title' => 'Канал новостей']);
+
+        $label = ChatSelectionField::labelFor($chat);
+
+        self::assertStringContainsString('Канал', $label);
+        self::assertStringContainsString('var(--warning-50)', $label);
+        self::assertStringContainsString('Канал новостей', $label);
+        self::assertStringContainsString('(ID: 44)', $label);
+    }
+
+    public function testLabelUsesChatTitleForGroup(): void
+    {
+        $chat = new RawChat(['chat_id' => 55, 'chat_type' => ChatType::Chat, 'title' => 'Название группы']);
+
+        self::assertStringContainsString('Название группы', ChatSelectionField::labelFor($chat));
+    }
+
     public function testLabelFallsBackToUnknownType(): void
     {
-        StringChatTypeChat::query()->create([
-            'user_id' => 3,
-            'chat_id' => 33,
-            'status' => MaxChatStatus::Active,
-            'chat_type' => 'supergroup',
-        ]);
-
-        $chat = StringChatTypeChat::query()->where('chat_id', 33)->firstOrFail();
+        $chat = new RawChat(['chat_id' => 33, 'chat_type' => 'supergroup']);
 
         $label = ChatSelectionField::labelFor($chat);
 
@@ -151,18 +171,68 @@ class ChatSelectionFieldTest extends TestCase
         self::assertStringContainsString('var(--gray-50)', $label);
         self::assertStringNotContainsString('supergroup', $label);
     }
-}
 
-final class StringChatTypeChat extends MaxChat
-{
-    protected function casts(): array
+    public function testLabelFallsBackToZeroForNonNumericChatId(): void
     {
-        return [
-            'user_id' => 'integer',
-            'chat_id' => 'integer',
-            'status' => MaxChatStatus::class,
-            'chat_type' => 'string',
-            'last_activity_at' => 'datetime',
-        ];
+        $chat = new RawChat(['chat_id' => 'not-a-number']);
+
+        self::assertStringContainsString('(ID: 0)', ChatSelectionField::labelFor($chat));
+    }
+
+    public function testLabelCastsNumericStringChatId(): void
+    {
+        $chat = new RawChat(['chat_id' => '77']);
+
+        self::assertStringContainsString('(ID: 77)', ChatSelectionField::labelFor($chat));
+    }
+
+    public function testChatTypeLabelCoversAllKnownTypes(): void
+    {
+        self::assertSame('Диалог', ChatSelectionField::chatTypeLabel(new RawChat(['chat_type' => ChatType::Dialog])));
+        self::assertSame('Группа', ChatSelectionField::chatTypeLabel(new RawChat(['chat_type' => ChatType::Chat])));
+        self::assertSame('Канал', ChatSelectionField::chatTypeLabel(new RawChat(['chat_type' => ChatType::Channel])));
+        self::assertSame('Чат', ChatSelectionField::chatTypeLabel(new RawChat()));
+    }
+
+    public function testChatTypeColorCoversAllKnownTypes(): void
+    {
+        self::assertSame('success', ChatSelectionField::chatTypeColor(new RawChat(['chat_type' => ChatType::Dialog])));
+        self::assertSame('warning', ChatSelectionField::chatTypeColor(new RawChat(['chat_type' => ChatType::Channel])));
+        self::assertSame('gray', ChatSelectionField::chatTypeColor(new RawChat()));
+    }
+
+    public function testDisplayNameDelegatesToRegistry(): void
+    {
+        $chat = new RawChat(['chat_id' => 66, 'chat_type' => ChatType::Chat, 'title' => 'Название для проверки']);
+
+        self::assertSame('Название для проверки', ChatSelectionField::displayName($chat));
+    }
+
+    public function testOptionLabelsSkipsNonScalarValues(): void
+    {
+        Chats::create(11, 1, [
+            'status' => MaxChatStatus::Active,
+        ]);
+
+        $labels = ChatSelectionField::optionLabels([11, ['nested'], new \stdClass()]);
+
+        self::assertArrayHasKey(11, $labels);
+        self::assertCount(1, $labels);
+    }
+
+    public function testOptionLabelsIsEmptyWhenSelectionHasOnlyNonScalarValues(): void
+    {
+        self::assertSame([], ChatSelectionField::optionLabels([['nested'], new \stdClass()]));
+    }
+
+    public function testMakeConfiguresMultipleSearchableSelect(): void
+    {
+        $select = ChatSelectionField::make('recipient_chat_ids', 'Получатели', helperText: 'Подсказка', required: true);
+
+        self::assertTrue($select->isMultiple());
+        self::assertTrue($select->isSearchable());
+        self::assertTrue($select->isRequired());
+        self::assertSame('recipient_chat_ids', $select->getName());
+        self::assertSame('Получатели', $select->getLabel());
     }
 }
