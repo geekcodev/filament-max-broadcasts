@@ -14,9 +14,9 @@ use GeekCo\FilamentMaxBroadcasts\Services\BroadcastRecipientsResolver;
 use GeekCo\FilamentMaxBroadcasts\Services\BroadcastService;
 use GeekCo\FilamentMaxBroadcasts\Services\BroadcastTextSanitizer;
 use GeekCo\FilamentMaxBroadcasts\Tests\Fixtures\TestUser;
+use GeekCo\FilamentMaxBroadcasts\Tests\Fixtures\Chats;
 use GeekCo\FilamentMaxBroadcasts\Tests\TestCase;
 use GeekCo\LaravelMaxClient\Enums\MaxChatStatus;
-use GeekCo\LaravelMaxClient\Models\MaxChat;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Queue;
 use InvalidArgumentException;
@@ -28,9 +28,7 @@ class BroadcastServiceTest extends TestCase
         $chats = [];
 
         foreach (array_chunk($pairs, 2) as [$userId, $chatId]) {
-            $chats[] = MaxChat::query()->create([
-                'user_id' => $userId,
-                'chat_id' => $chatId,
+            $chats[] = Chats::create($chatId, $userId, [
                 'status' => MaxChatStatus::Active,
             ]);
         }

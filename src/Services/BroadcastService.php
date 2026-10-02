@@ -11,6 +11,7 @@ use GeekCo\FilamentMaxBroadcasts\Jobs\SendBroadcastJob;
 use GeekCo\FilamentMaxBroadcasts\Models\Broadcast;
 use GeekCo\FilamentMaxBroadcasts\Models\BroadcastSegment;
 use GeekCo\FilamentMaxBroadcasts\Support\BroadcastTypes;
+use GeekCo\FilamentMaxBroadcasts\Support\ChatRegistry;
 use GeekCo\LaravelMaxClient\Models\MaxChat;
 use GeekCo\MaxPhpClient\Enum\UploadType;
 use Carbon\CarbonInterface;
@@ -82,7 +83,7 @@ class BroadcastService
 
             $recipientsData = $chats->map(
                 static fn (MaxChat $chat): array => [
-                    'user_id' => $chat->getAttribute('user_id'),
+                    'user_id' => ChatRegistry::userId($chat),
                     'chat_id' => $chat->getAttribute('chat_id'),
                     'status' => BroadcastRecipientStatus::Pending,
                 ],

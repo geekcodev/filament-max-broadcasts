@@ -10,6 +10,7 @@ use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use GeekCo\FilamentMaxBroadcasts\Enums\BroadcastRecipientStatus;
 use GeekCo\FilamentMaxBroadcasts\Models\BroadcastRecipient;
+use GeekCo\FilamentMaxBroadcasts\Support\ChatRegistry;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 
@@ -25,22 +26,31 @@ class BroadcastRecipientsRelationManager extends RelationManager
     public function table(Table $table): Table
     {
         return $table
-            ->modifyQueryUsing(fn (Builder $query): Builder => $query->with('maxChat.maxUser'))
+            ->modifyQueryUsing(
+                fn (Builder $query): Builder => $query->with(
+                    array_map(
+                        static fn (string $relation): string => 'maxChat.'.$relation,
+                        ChatRegistry::userRelations(),
+                    ),
+                ),
+            )
             ->columns([
                 TextColumn::make('name')
                     ->label(__('filament-max-broadcasts::broadcasts.recipients.name'))
                     ->getStateUsing(static function (BroadcastRecipient $record): string {
-                        $user = $record->maxChat?->maxUser;
-                        $name = trim(implode(' ', array_filter([$user?->first_name, $user?->last_name])));
+                        $chat = $record->maxChat;
+                        $name = $chat instanceof Model ? ChatRegistry::userName(ChatRegistry::user($chat)) : '';
 
                         return $name !== '' ? $name : __('filament-max-broadcasts::broadcasts.recipients.anonymous', ['id' => $record->user_id]);
                     })
                     ->searchable(query: static function (Builder $query, string $search): void {
-                        $query->whereHas(
-                            'maxChat.maxUser',
-                            static fn (Builder $q) => $q->where('first_name', 'like', '%'.$search.'%')
-                                ->orWhere('last_name', 'like', '%'.$search.'%'),
-                        );
+                        foreach (ChatRegistry::userRelations() as $relation) {
+                            $query->orWhereHas(
+                                'maxChat.'.$relation,
+                                static fn (Builder $q) => $q->where('first_name', 'like', '%'.$search.'%')
+                                    ->orWhere('last_name', 'like', '%'.$search.'%'),
+                            );
+                        }
                     }),
                 TextColumn::make('user_id')
                     ->label(__('filament-max-broadcasts::broadcasts.recipients.user_id'))

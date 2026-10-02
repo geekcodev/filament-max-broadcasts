@@ -8,7 +8,8 @@ use GeekCo\FilamentMaxBroadcasts\Enums\BroadcastRecipientStatus;
 use GeekCo\FilamentMaxBroadcasts\Models\Broadcast;
 use GeekCo\FilamentMaxBroadcasts\Models\BroadcastRecipient;
 use GeekCo\FilamentMaxBroadcasts\Tests\TestCase;
-use GeekCo\LaravelMaxClient\Models\MaxChat;
+use GeekCo\FilamentMaxBroadcasts\Support\ChatRegistry;
+use GeekCo\FilamentMaxBroadcasts\Tests\Fixtures\Chats;
 
 class BroadcastRecipientTest extends TestCase
 {
@@ -63,9 +64,7 @@ class BroadcastRecipientTest extends TestCase
             'status' => 'running',
         ]);
 
-        $chat = MaxChat::query()->create([
-            'user_id' => 222,
-            'chat_id' => 111,
+        Chats::create(111, 222, [
             'status' => 'active',
         ]);
 
@@ -77,6 +76,29 @@ class BroadcastRecipientTest extends TestCase
         ]);
 
         self::assertNotNull($recipient->maxChat);
-        self::assertSame($chat->id, $recipient->maxChat->id);
+        self::assertSame(111, ChatRegistry::chatId($recipient->maxChat));
+    }
+
+    public function testStoresNegativeGroupChatId(): void
+    {
+        // Группы и каналы MAX имеют отрицательные `chat_id`: колонка знаковая,
+        // иначе MySQL отверг бы такую запись.
+        $broadcast = Broadcast::query()->create([
+            'text' => 'Hello',
+            'type' => 'news',
+            'status' => 'running',
+        ]);
+
+        $recipient = BroadcastRecipient::query()->create([
+            'broadcast_id' => $broadcast->id,
+            'chat_id' => -1234567890123,
+            'user_id' => -987654321,
+            'status' => BroadcastRecipientStatus::Pending,
+        ]);
+
+        $fresh = BroadcastRecipient::query()->findOrFail($recipient->id);
+
+        self::assertSame(-1234567890123, $fresh->chat_id);
+        self::assertSame(-987654321, $fresh->user_id);
     }
 }

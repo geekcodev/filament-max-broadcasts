@@ -9,6 +9,7 @@ use GeekCo\FilamentMaxBroadcasts\Enums\BroadcastTypes\ConsentPoll;
 use GeekCo\FilamentMaxBroadcasts\Services\BroadcastSender;
 use GeekCo\FilamentMaxBroadcasts\Services\BroadcastTextSanitizer;
 use GeekCo\FilamentMaxBroadcasts\Services\ConsentRequestService;
+use GeekCo\FilamentMaxBroadcasts\Support\ChatRegistry;
 use GeekCo\LaravelMaxClient\Models\MaxChat;
 use GeekCo\MaxPhpClient\Dto\Recipient;
 use Illuminate\Bus\Queueable;
@@ -114,8 +115,7 @@ class SendConsentRequestsJob implements ShouldQueue
     {
         /** @var int $chatId */
         $chatId = $chat->getAttribute('chat_id');
-        /** @var int|null $userId */
-        $userId = $chat->getAttribute('user_id');
+        $userId = ChatRegistry::userId($chat);
 
         try {
             $sender->send(

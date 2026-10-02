@@ -9,10 +9,11 @@ use GeekCo\FilamentMaxBroadcasts\Models\BroadcastSegment;
 use GeekCo\FilamentMaxBroadcasts\Resources\BroadcastSegmentResource;
 use GeekCo\FilamentMaxBroadcasts\Resources\Pages\CreateBroadcast;
 use GeekCo\FilamentMaxBroadcasts\Resources\Pages\CreateBroadcastSegment;
+use GeekCo\FilamentMaxBroadcasts\Resources\Pages\EditBroadcastSegment;
 use GeekCo\FilamentMaxBroadcasts\Tests\Fixtures\TestUser;
+use GeekCo\FilamentMaxBroadcasts\Tests\Fixtures\Chats;
 use GeekCo\FilamentMaxBroadcasts\Tests\TestCase;
 use GeekCo\LaravelMaxClient\Enums\MaxChatStatus;
-use GeekCo\LaravelMaxClient\Models\MaxChat;
 use Livewire\Livewire;
 
 class BroadcastSegmentResourceTest extends TestCase
@@ -31,9 +32,15 @@ class BroadcastSegmentResourceTest extends TestCase
 
     private function activeChats(): void
     {
-        MaxChat::query()->create(['user_id' => 1, 'chat_id' => 11, 'status' => MaxChatStatus::Active]);
-        MaxChat::query()->create(['user_id' => 2, 'chat_id' => 22, 'status' => MaxChatStatus::Active]);
-        MaxChat::query()->create(['user_id' => 3, 'chat_id' => 33, 'status' => MaxChatStatus::Active]);
+        Chats::create(11, 1, [
+            'status' => MaxChatStatus::Active,
+        ]);
+        Chats::create(22, 2, [
+            'status' => MaxChatStatus::Active,
+        ]);
+        Chats::create(33, 3, [
+            'status' => MaxChatStatus::Active,
+        ]);
     }
 
     public function testIndexPageIsForbiddenWithoutPermission(): void
@@ -154,5 +161,104 @@ class BroadcastSegmentResourceTest extends TestCase
             [$vip->id, $employees->id],
             $broadcast->segments->pluck('id')->sort()->values()->all(),
         );
+    }
+
+    public function testEditPageIsForbiddenWithoutPermission(): void
+    {
+        $segment = BroadcastSegment::query()->create([
+            'name' => 'VIP',
+            'chat_ids' => [11],
+        ]);
+
+        $this->actingAs(TestUser::query()->create([
+            'name' => 'Guest',
+            'email' => 'guest@example.com',
+            'password' => 'secret',
+            'can_view_broadcasts' => true,
+        ]));
+
+        $this->get(BroadcastSegmentResource::getUrl('edit', ['record' => $segment->getKey()]))
+            ->assertForbidden();
+    }
+
+    public function testEditPageIsAccessibleWithPermission(): void
+    {
+        $segment = BroadcastSegment::query()->create([
+            'name' => 'VIP',
+            'chat_ids' => [11],
+        ]);
+
+        $this->actingAs($this->adminUser());
+
+        $this->get(BroadcastSegmentResource::getUrl('edit', ['record' => $segment->getKey()]))
+            ->assertSuccessful();
+    }
+
+    public function testEditSegmentThroughForm(): void
+    {
+        $this->actingAs($this->adminUser());
+        $this->activeChats();
+
+        $segment = BroadcastSegment::query()->create([
+            'name' => 'VIP',
+            'chat_ids' => [11],
+        ]);
+
+        Livewire::test(EditBroadcastSegment::class, ['record' => $segment->getKey()])
+            ->fillForm([
+                'name' => 'VIP clients',
+                'description' => 'Постоянные клиенты',
+                'chat_ids' => ['11', '22'],
+            ])
+            ->call('save')
+            ->assertHasNoFormErrors();
+
+        $segment->refresh();
+
+        self::assertSame('VIP clients', $segment->name);
+        self::assertSame('Постоянные клиенты', $segment->description);
+        self::assertSame([11, 22], $segment->chat_ids);
+        self::assertSame(2, $segment->chat_count);
+    }
+
+    public function testEditSegmentClearsDescriptionWhenOmitted(): void
+    {
+        $this->actingAs($this->adminUser());
+
+        $segment = BroadcastSegment::query()->create([
+            'name' => 'VIP',
+            'description' => 'Старое описание',
+            'chat_ids' => [11],
+        ]);
+
+        Livewire::test(EditBroadcastSegment::class, ['record' => $segment->getKey()])
+            ->fillForm([
+                'name' => 'VIP',
+                'description' => null,
+                'chat_ids' => [],
+            ])
+            ->call('save')
+            ->assertHasNoFormErrors();
+
+        $segment->refresh();
+
+        self::assertNull($segment->description);
+        self::assertSame([], $segment->chat_ids);
+        self::assertSame(0, $segment->chat_count);
+    }
+
+    public function testDeleteSegmentThroughHeaderAction(): void
+    {
+        $this->actingAs($this->adminUser());
+
+        $segment = BroadcastSegment::query()->create([
+            'name' => 'Удаляемый',
+            'chat_ids' => [11],
+        ]);
+
+        Livewire::test(EditBroadcastSegment::class, ['record' => $segment->getKey()])
+            ->callAction('delete');
+
+        self::assertNull(BroadcastSegment::query()->find($segment->getKey()));
     }
 }

@@ -9,6 +9,7 @@ parameters:
         - tests
         - config
         - database
+        - scripts
 
     level: max
 
@@ -18,3 +19,5 @@ parameters:
         - %currentWorkingDirectory%/config
 
     tmpDir: %currentWorkingDirectory%/.phpstan-cache
+
+    reportUnmatchedIgnoredErrors: false

@@ -15,6 +15,7 @@ use GeekCo\FilamentMaxBroadcasts\Resources\Pages\ListBroadcasts;
 use GeekCo\FilamentMaxBroadcasts\Resources\Pages\ViewBroadcast;
 use GeekCo\FilamentMaxBroadcasts\Services\ConsentService;
 use GeekCo\FilamentMaxBroadcasts\Tests\Fixtures\TestUser;
+use GeekCo\FilamentMaxBroadcasts\Tests\Fixtures\Chats;
 use GeekCo\FilamentMaxBroadcasts\Tests\TestCase;
 use GeekCo\LaravelMaxClient\Enums\MaxChatStatus;
 use GeekCo\LaravelMaxClient\Models\MaxChat;
@@ -48,9 +49,7 @@ class BroadcastResourceTest extends TestCase
 
     private function activeChat(): MaxChat
     {
-        return MaxChat::query()->create([
-            'user_id' => 1,
-            'chat_id' => 11,
+        return Chats::create(11, 1, [
             'status' => MaxChatStatus::Active,
         ]);
     }

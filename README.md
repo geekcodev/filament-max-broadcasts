@@ -28,15 +28,40 @@ Filament-плагин: **массовые рассылки** пользоват�
 
 - PHP ^8.4, Laravel ^13.0
 - Filament ^5.0 (панель v5), Livewire ^4.1
-- `geekcodev/laravel-max-client` ^1.1.0 + `geekcodev/max-php-client` ^1.0.9
-- Опубликованные миграции laravel-max-client (`max_users`, `max_chats`)
-- Работающая очередь (для фактической отправки)
+- `geekcodev/laravel-max-client` ^1.2.0 + `geekcodev/max-php-client` ^1.1.8
+- Опубликованные миграции laravel-max-client (`max_users`, `max_chats`, `max_chat_users`)
+- Работающая очередь (для фактической отправки) и **общее для всех воркеров хранилище кэша**
+  (redis/database/memcached): джобы берут `Cache::lock()`; на `file`/`array` рассылку отправят два процесса
+  параллельно, а счётчики разъедутся.
+
+Плагин читает из реестра `max_chats` поля `status`, `chat_type` и `last_activity_at`. Формы реестра у версий ядра
+разные: 1.1.x хранит строку на пару пользователь-чат с `unique(user_id, chat_id)` и колонкой `user_id`, а 1.2 —
+строку на чат с `chat_id` первичным ключом, связями чат-пользователь в `max_chat_users` и колонкой `title`. Код
+плагина работает с обеими формами через адаптер `Support\ChatRegistry`, но поддерживается форма 1.2, поэтому
+минимум — `laravel-max-client` ^1.2.0.
+
+Апгрейд с 1.1.x выполняйте строго в таком порядке:
+
+```bash
+composer require geekcodev/laravel-max-client:^1.2.0
+php artisan migrate      # новая форма реестра: max_chats по chat_id + таблица max_chat_users
+php artisan max:upgrade  # перенос данных реестра из старой формы в новую
+```
+
+Пропуск `max:upgrade` оставит `max_chat_users` пустой, и плагин не найдёт ни одного получателя. Проверить
+фактически установленную версию можно командой `composer show geekcodev/laravel-max-client`.
+
+Колонки `max_broadcast_recipients.chat_id` и `user_id` в плагине знаковые: идентификаторы групп и каналов MAX
+отрицательные, и без этого MySQL отвергал бы рассылку в канал, а на PostgreSQL тип `bigint` уже знаковый, и
+миграция `2026_10_02_000001` приводит его к тому же виду.
 
 ## Установка
 
 ```bash
 composer require geekcodev/filament-max-broadcasts
-php artisan migrate    # миграции max_broadcasts / max_broadcast_recipients загружаются из пакета автоматически
+php artisan migrate    # миграции max_broadcasts, max_broadcast_recipients, max_broadcast_attachments,
+                       # max_broadcast_segments, max_broadcast_consents и pivot max_broadcast_segment
+                       # загружаются из пакета автоматически
 ```
 
 Подключение к панели:
@@ -158,9 +183,33 @@ PHP/Composer на хосте не требуются — всё через Docke
 ```bash
 docker compose up -d --build   # контейнер app (PHP 8.4)
 docker compose run --rm app composer install
-docker compose exec app composer test       # PHPUnit (SQLite in-memory)
-docker compose exec app composer analyse    # PHPStan level max (Larastan + baseline)
-docker compose exec app composer lint       # PHP-CS-Fixer (--dry-run)
-docker compose exec app composer format     # PHP-CS-Fixer (исправить)
-docker compose exec app composer audit      # composer audit
+docker compose exec -T app composer test           # PHPUnit (SQLite in-memory)
+docker compose exec -T app composer analyse        # PHPStan level max (Larastan + baseline)
+docker compose exec -T app composer lint           # PHP-CS-Fixer (--dry-run)
+docker compose exec -T app composer format         # PHP-CS-Fixer (исправить)
+docker compose exec -T app composer coverage        # PHPUnit + отчёт покрытия и проверка порога строк (95%)
+docker compose exec -T app composer security-audit # composer audit
 ```
+
+Тот же набор прогоняет CI (`.github/workflows/ci.yml`) на PHP 8.4 с Xdebug в один job `quality`. Отчёт покрытия
+требует Xdebug: локально в dev-образе он включён, в CI — через `coverage: xdebug` и `XDEBUG_MODE=coverage`.
+
+## История изменений
+
+Полные release notes по версиям — в каталоге `.agents/release/` репозитория (в архив пакета он не попадает),
+здесь только значимое для пользователя.
+
+- **v1.1.0** — переход на форму реестра `laravel-max-client` 1.2: минимум `laravel-max-client` ^1.2.0 и
+  `max-php-client` ^1.1.8, адаптер `Support\ChatRegistry` для обеих форм реестра, знаковые `chat_id`/`user_id`
+  в таблице получателей. При обновлении с 1.1.x: `php artisan migrate`, затем `php artisan max:upgrade`.
+- **v1.0.5** — в таблице согласий имя и тип чата (бейдж «Диалог»/«Группа»/«Канал», имя из профиля
+  `max_users`, поиск по имени), без N+1.
+- **v1.0.4** — read-only ресурс «Согласия» (`BroadcastConsentResource`) с журналом ответов и фильтром по
+  действию; сегменты принимают пустой список чатов.
+- **v1.0.3** — выбор получателей: список чатов подгружается при открытии, метки с бейджем типа и именем,
+  поиск по имени и `chat_id`; ответ на согласие убирает кнопки из сообщения и подтверждает выбор в чат.
+- **v1.0.2** — сегменты получателей и их ресурс; выбор получателей сегментами и конкретными чатами со снимком
+  `recipient_chat_ids`; сбор opt-in согласия через callback-кнопки.
+- **v1.0.1** — обновление пакетов `laravel-max-client`/`max-php-client`; просмотр вложений на странице рассылки.
+- **v1.0.0** — первый релиз: ресурс «Рассылки», отложенная отправка очередью, медиавложения, типы рассылок с
+  кнопками-диплинками, санитизация текста.
