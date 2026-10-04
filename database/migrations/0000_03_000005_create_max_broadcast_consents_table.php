@@ -9,6 +9,10 @@ use Illuminate\Support\Facades\Schema;
 return new class () extends Migration {
     public function up(): void
     {
+        if (Schema::hasTable('max_broadcast_consents')) {
+            return;
+        }
+
         Schema::create('max_broadcast_consents', function (Blueprint $table): void {
             $table->comment('Согласия получателей на рассылку (opt-in/opt-out через callback-кнопки)');
             $table->id();

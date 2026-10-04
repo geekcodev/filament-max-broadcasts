@@ -9,6 +9,10 @@ use Illuminate\Support\Facades\Schema;
 return new class () extends Migration {
     public function up(): void
     {
+        if (Schema::hasTable('max_broadcast_attachments')) {
+            return;
+        }
+
         Schema::create('max_broadcast_attachments', function (Blueprint $table): void {
             $table->comment('Вложения рассылки (картинки, видео, файлы) — по несколько на рассылку');
             $table->id();

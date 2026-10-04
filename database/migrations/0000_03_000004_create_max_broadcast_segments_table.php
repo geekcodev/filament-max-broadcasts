@@ -10,6 +10,10 @@ use Illuminate\Support\Facades\Schema;
 return new class () extends Migration {
     public function up(): void
     {
+        if (Schema::hasTable('max_broadcast_segments')) {
+            return;
+        }
+
         Schema::create('max_broadcast_segments', function (Blueprint $table): void {
             $table->comment('Именованные сегменты получателей для массовых рассылок');
             $table->id();

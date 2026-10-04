@@ -10,17 +10,17 @@ date: 2026-09-03
 
 ## Контекст
 
-Пользователь попросил проверить соответствие изменений проекта AGENTS.md и отсутствие багов, затем — состояние
-плана. Итог ревизии: план полностью реализован в рамках заявленного объёма; по запросу пользователя
+Пользователь попросил проверить соответствие изменений проекта AGENTS.md и отсутствие багов, затем — состояние плана.
+Итог ревизии: план полностью реализован в рамках заявленного объёма; по запросу пользователя
 `PLAN-filament-max-broadcasts.md` удалён (был временным, untracked).
 
 ## Что сделано
 
 ### Удаление мёртвых полей конфига (чистка)
 
-- `config/filament-max-broadcasts.php`: убран `permissions.send` (`broadcasts.send`) и `image.accepted_extensions`.
-  Оба не читались кодом. Остаточные права — только `permissions.view` / `permissions.create` / `permissions.manage`.
-- Реalised: `BroadcastTypeContract` в текущем виде — `fromToken/label/buttonRows/badgeColor`; удалённые ранее
+- `config/filament-max-broadcasts.php`: убран `permissions.send` (`broadcasts.send`) и `image.accepted_extensions`. Оба
+  не читались кодом. Остаточные права — только `permissions.view` / `permissions.create` / `permissions.manage`.
+- Realised: `BroadcastTypeContract` в текущем виде — `fromToken/label/buttonRows/badgeColor`; удалённые ранее
   `maxTextLength()/imageMaxKb()` не имеют вызывающих — чисто.
 
 ### Синхронизация тестовой инфраструктуры
@@ -43,16 +43,16 @@ date: 2026-09-03
 ### Документация
 
 - `README.md`, `AGENTS.md`, `.env.example`, `RELEASE-v1.0.0.md` очищены от упоминаний `permissions.send` и
-  `accepted_extensions`. `.env.example` ↔ config: 8 ключей `FILAMENT_MAX_BROADCASTS_*` совпадают 1:1 (`SEND` удалён
-  из обоих).
+  `accepted_extensions`. `.env.example` ↔ config: 8 ключей `FILAMENT_MAX_BROADCASTS_*` совпадают 1:1 (`SEND` удалён из
+  обоих).
 
 ### Удаление план-файла
 
-- `PLAN-filament-max-broadcasts.md` (untracked) удалён — все реализуемые шаги §11 (0–21) выполнены; нереализованные
-  (22 «коммит/публикация», подключение в хост, dashboard-виджет, real-time) — вне объёма по дизайну плана/AGENTS.
-  Эволюция кода далее плана (мультимедиа-вложения, `BroadcastTypeContract`, удалённый `send`) зафиксирована в
-  журнале сессий и `RELEASE-v1.0.0.md`; план отстал и был несинхронизирован. Ссылки на план остались только в
-  исторических журналах `.ai/progress/` — намеренно.
+- `PLAN-filament-max-broadcasts.md` (untracked) удалён — все реализуемые шаги §11 (0–21) выполнены; нереализованные (22
+  «коммит/публикация», подключение в хост, dashboard-виджет, real-time) — вне объёма по дизайну плана/AGENTS. Эволюция
+  кода далее плана (мультимедиа-вложения, `BroadcastTypeContract`, удалённый `send`) зафиксирована в журнале сессий и
+  `RELEASE-v1.0.0.md`; план отстал и был несинхронизирован. Ссылки на план остались только в исторических журналах
+  `.ai/progress/` — намеренно.
 
 ## Gate (после чистки)
 
@@ -66,8 +66,8 @@ date: 2026-09-03
 
 ## Замечания по процессу
 
-- `phpstan-baseline.neon` нельзя удалять физически — `phpstan.neon` подключает его напрямую, без файла будет ошибка.
-  Для пустого baseline регенерация — `vendor/bin/phpstan analyse --generate-baseline phpstan-baseline.neon
+- `phpstan-baseline.neon` нельзя удалять физически — `phpstan.neon` подключает его напрямую, без файла будет ошибка. Для
+  пустого baseline регенерация — `vendor/bin/phpstan analyse --generate-baseline phpstan-baseline.neon
   --allow-empty-baseline`.
 - Перед `composer analyse` обязателен `rm -rf .phpstan-cache` (кэш флапает — `Undefined constant LARAVEL_VERSION`).
 - `grep -rL "declare(strict_types=1)"` с пустым выводом некорректно детектится через `|| echo` — надо
