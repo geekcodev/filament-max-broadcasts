@@ -9,6 +9,10 @@ use Illuminate\Support\Facades\Schema;
 return new class () extends Migration {
     public function up(): void
     {
+        if (Schema::hasTable('max_broadcast_recipients')) {
+            return;
+        }
+
         Schema::create('max_broadcast_recipients', function (Blueprint $table): void {
             $table->comment('Получатели конкретной рассылки (снимок на момент отправки)');
             $table->id();
