@@ -15,15 +15,17 @@ use GeekCo\MaxPhpClient\Exception\MaxApiException;
 use Illuminate\Support\Facades\Log;
 
 /**
- * Обработка нажатий на callback-кнопки согласия («Согласен» / «Не согласен»).
+ * Обработка нажатий на callback-кнопки согласия («Да» / «Нет»).
  *
- * Значение payload: consent:<action>, где action ∈ {opt_in, opt_out}. Чужие
- * callback'и и payload'ы игнорируются (не отвечаем); вызовы MAX логируются без
+ * Payload всегда содержит сегмент: consent:<segmentId>:<action>, где
+ * action ∈ {opt_in, opt_out}. Чужие callback'и, payload'ы без сегмента и
+ * неизвестные сегменты игнорируются (не отвечаем); вызовы MAX логируются без
  * чувствительных данных (callback_id, payload), как требует laravel-max-client.
  *
- * После обработки: убирает inline-кнопки из исходного сообщения (editMessage,
- * текст опроса сохраняется), отправляет подтверждающее сообщение в чат
- * (sendMessage) и отвечает на callback (sendAnswer).
+ * После обработки: удаляет исходное сообщение с опросом (deleteMessage), отправляет
+ * подтверждающее сообщение в чат (sendMessage) и отвечает на callback (sendAnswer).
+ * Если удалить сообщение не удалось, кнопки убираются правкой (editMessage): опрос
+ * нельзя нажать повторно, а согласие всё равно записано.
  */
 class HandleConsentCallback
 {
@@ -48,8 +50,9 @@ class HandleConsentCallback
         }
 
         $prefix = config()->string('filament-max-broadcasts.consent.payload_prefix', 'consent');
+        $pattern = '/^'.preg_quote($prefix, '/').':(\d+):(opt_in|opt_out)$/';
 
-        if (! str_starts_with($callback->payload, $prefix.':')) {
+        if (preg_match($pattern, $callback->payload, $matches) !== 1) {
             return;
         }
 
@@ -60,16 +63,19 @@ class HandleConsentCallback
             return;
         }
 
-        $action = substr($callback->payload, strlen($prefix) + 1);
+        $segmentId = (int) $matches[1];
+        $action = $matches[2];
 
-        match ($action) {
-            'opt_in' => $this->consent->optIn($chatId, $userId),
-            'opt_out' => $this->consent->optOut($chatId, $userId),
-            default => null,
-        };
+        if ($this->consent->findSegment($segmentId) === null) {
+            Log::warning('MAX consent callback skipped (segment not found)', ['segment_id' => $segmentId]);
 
-        if (! in_array($action, ['opt_in', 'opt_out'], true)) {
             return;
+        }
+
+        if ($action === 'opt_in') {
+            $this->consent->optIn($chatId, $userId, $segmentId);
+        } else {
+            $this->consent->optOut($chatId, $userId, $segmentId);
         }
 
         $confirmation = $action === 'opt_in'
@@ -78,15 +84,34 @@ class HandleConsentCallback
 
         $pollText = $callback->message?->body?->text;
         $pollFormat = $callback->message?->body->format ?? TextFormat::Html;
+        $messageId = $update->messageId ?? $callback->message?->body?->mid;
 
-        $this->removeButtons($update->messageId ?? $callback->message?->body?->mid, $pollText, $pollFormat);
+        $this->deletePollMessage($messageId, $pollText, $pollFormat);
         $this->sendConfirmation($chatId, $confirmation);
         $this->acknowledgeCallback($callback->callbackId, $confirmation);
     }
 
-    private function removeButtons(?string $messageId, ?string $text, ?TextFormat $format): void
+    private function deletePollMessage(?string $messageId, ?string $text, ?TextFormat $format): void
     {
-        if ($messageId === null || $text === null || trim($text) === '') {
+        if ($messageId === null || trim($messageId) === '') {
+            Log::warning('MAX consent delete message skipped (message id unavailable)');
+
+            return;
+        }
+
+        try {
+            $this->api->deleteMessage($messageId);
+
+            return;
+        } catch (MaxApiException $exception) {
+            Log::warning('MAX consent delete message failed', [
+                'message_id' => $messageId,
+                'exception_class' => $exception::class,
+                'message' => $exception->getMessage(),
+            ]);
+        }
+
+        if ($text === null || trim($text) === '') {
             Log::warning('MAX consent edit message skipped (message text unavailable)');
 
             return;

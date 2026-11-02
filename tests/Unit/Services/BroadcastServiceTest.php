@@ -17,6 +17,7 @@ use GeekCo\FilamentMaxBroadcasts\Tests\Fixtures\TestUser;
 use GeekCo\FilamentMaxBroadcasts\Tests\Fixtures\Chats;
 use GeekCo\FilamentMaxBroadcasts\Tests\TestCase;
 use GeekCo\LaravelMaxClient\Enums\MaxChatStatus;
+use GeekCo\MaxPhpClient\Enum\ChatType;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Queue;
 use InvalidArgumentException;
@@ -30,6 +31,7 @@ class BroadcastServiceTest extends TestCase
         foreach (array_chunk($pairs, 2) as [$userId, $chatId]) {
             $chats[] = Chats::create($chatId, $userId, [
                 'status' => MaxChatStatus::Active,
+                'chat_type' => ChatType::Dialog,
             ]);
         }
 
@@ -48,6 +50,7 @@ class BroadcastServiceTest extends TestCase
 
         $broadcast = $service->create(
             text: 'Hello <script>alert(1)</script><b>world</b>',
+            chatIds: [11, 22],
             scheduledAt: null,
         );
 
@@ -76,6 +79,7 @@ class BroadcastServiceTest extends TestCase
 
         $broadcast = $service->create(
             text: 'Later',
+            chatIds: [11, 22],
             scheduledAt: now()->addHour(),
         );
 
@@ -100,6 +104,7 @@ class BroadcastServiceTest extends TestCase
 
         $broadcast = $service->create(
             text: 'Hello',
+            chatIds: [11, 22],
             scheduledAt: null,
             creator: $user,
         );
@@ -121,6 +126,7 @@ class BroadcastServiceTest extends TestCase
 
         $broadcast = $service->create(
             text: 'Hello',
+            chatIds: [11, 22],
             scheduledAt: null,
             attachments: [
                 ['upload_type' => 'image', 'path' => 'broadcasts/photo.jpg'],
@@ -154,6 +160,7 @@ class BroadcastServiceTest extends TestCase
 
         $service->create(
             text: 'Hi',
+            chatIds: [11, 22],
             scheduledAt: null,
             attachments: [
                 ['upload_type' => 'gif', 'path' => 'broadcasts/x.gif'],
@@ -171,6 +178,7 @@ class BroadcastServiceTest extends TestCase
         try {
             $service->create(
                 text: 'Hi',
+                chatIds: [11, 22],
                 scheduledAt: null,
                 attachments: [
                     ['upload_type' => 'gif', 'path' => 'broadcasts/x.gif'],
@@ -194,6 +202,7 @@ class BroadcastServiceTest extends TestCase
 
         $broadcast = $service->create(
             text: 'Promo!',
+            chatIds: [11, 22],
             scheduledAt: null,
             type: 'promo',
         );
@@ -212,6 +221,7 @@ class BroadcastServiceTest extends TestCase
 
         $service->create(
             text: 'Hi',
+            chatIds: [11, 22],
             scheduledAt: null,
             type: 'unknown-type',
         );
@@ -235,21 +245,54 @@ class BroadcastServiceTest extends TestCase
         self::assertSame([22, 33], $broadcast->recipient_chat_ids);
     }
 
-    public function testCreateWithEmptyChatIdsSendsToAll(): void
+    public function testCreateWithoutSegmentsOrRecipientsIsRejected(): void
     {
         $service = new BroadcastService(
             new BroadcastTextSanitizer(),
             $this->makeResolverWithChats(1, 11, 2, 22),
         );
 
+        $this->expectException(InvalidArgumentException::class);
+
+        try {
+            $service->create(
+                text: 'Nobody',
+                scheduledAt: null,
+                chatIds: [],
+                segments: [],
+            );
+        } finally {
+            self::assertSame(0, Broadcast::query()->count());
+        }
+    }
+
+    public function testSegmentRecipientsExcludeGroupsAndChannels(): void
+    {
+        $segment = BroadcastSegment::query()->create([
+            'name' => 'Mixed',
+            'chat_ids' => [11, 33],
+        ]);
+
+        $group = Chats::create(33, 3, [
+            'status' => MaxChatStatus::Active,
+            'chat_type' => ChatType::Chat,
+        ]);
+
+        $resolver = $this->mock(BroadcastRecipientsResolver::class);
+        $resolver->shouldReceive('resolve')->andReturn(new Collection([
+            Chats::create(11, 1, ['status' => MaxChatStatus::Active, 'chat_type' => ChatType::Dialog]),
+            $group,
+        ]));
+
+        $service = new BroadcastService(new BroadcastTextSanitizer(), $resolver);
+
         $broadcast = $service->create(
-            text: 'All chats',
+            text: 'Dialogs only',
             scheduledAt: null,
-            chatIds: [],
+            segments: [$segment],
         );
 
-        self::assertSame(2, $broadcast->total_recipients);
-        self::assertNull($broadcast->recipient_chat_ids);
+        self::assertSame([11], $broadcast->recipients->pluck('chat_id')->all());
     }
 
     public function testCreateWithSegmentUsesSegmentChats(): void

@@ -13,6 +13,7 @@ use GeekCo\FilamentMaxBroadcasts\Models\BroadcastSegment;
 use GeekCo\FilamentMaxBroadcasts\Support\BroadcastTypes;
 use GeekCo\FilamentMaxBroadcasts\Support\ChatRegistry;
 use GeekCo\LaravelMaxClient\Models\MaxChat;
+use GeekCo\MaxPhpClient\Enum\ChatType;
 use GeekCo\MaxPhpClient\Enum\UploadType;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Model;
@@ -43,6 +44,10 @@ class BroadcastService
     ): Broadcast {
         if (! BroadcastTypes::contains($type)) {
             throw new InvalidArgumentException(sprintf('Unknown broadcast type "%s".', $type));
+        }
+
+        if (($chatIds === null || $chatIds === []) && $segments === []) {
+            throw new InvalidArgumentException('Broadcast requires at least one segment or recipient.');
         }
 
         $this->validateAttachments($attachments);
@@ -146,7 +151,9 @@ class BroadcastService
 
             $ids = array_values(array_unique($ids));
 
-            return $this->filterByChatIds($resolved, $ids);
+            return $this->filterByChatIds($resolved, $ids)
+                ->filter(static fn (MaxChat $chat): bool => ChatRegistry::chatType($chat) === ChatType::Dialog->value)
+                ->values();
         }
 
         return $resolved;

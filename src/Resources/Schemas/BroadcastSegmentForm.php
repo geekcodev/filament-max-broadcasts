@@ -25,6 +25,7 @@ class BroadcastSegmentForm
                 'chat_ids',
                 __('filament-max-broadcasts::broadcasts.segment.form.recipients'),
                 helperText: __('filament-max-broadcasts::broadcasts.segment.form.recipients_helper'),
+                dialogsOnly: true,
             ),
         ]);
     }

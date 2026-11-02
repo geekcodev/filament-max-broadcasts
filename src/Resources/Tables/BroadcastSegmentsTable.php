@@ -6,14 +6,19 @@ namespace GeekCo\FilamentMaxBroadcasts\Resources\Tables;
 
 use Filament\Actions\DeleteAction;
 use Filament\Actions\EditAction;
+use Filament\Actions\ViewAction;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
 use GeekCo\FilamentMaxBroadcasts\Models\BroadcastSegment;
+use GeekCo\FilamentMaxBroadcasts\Resources\Actions\RequestConsentAction;
+use GeekCo\FilamentMaxBroadcasts\Services\BroadcastSegmentRecipients;
 
 class BroadcastSegmentsTable
 {
     public static function configure(Table $table): Table
     {
+        $managePermission = config()->string('filament-max-broadcasts.permissions.manage', 'broadcasts.manage');
+
         return $table
             ->columns([
                 TextColumn::make('id')
@@ -27,7 +32,19 @@ class BroadcastSegmentsTable
                     ->label(__('filament-max-broadcasts::broadcasts.segment.table.recipients'))
                     ->getStateUsing(
                         static fn (BroadcastSegment $record): string => (string) $record->getChatCountAttribute(),
-                    ),
+                    )
+                    ->description(static function (BroadcastSegment $record): ?string {
+                        $count = (new BroadcastSegmentRecipients())->nonDialogCount($record);
+
+                        if ($count === 0) {
+                            return null;
+                        }
+
+                        /** @var string $message */
+                        $message = __('filament-max-broadcasts::broadcasts.segment.view.non_dialog_warning', ['count' => $count]);
+
+                        return $message;
+                    }),
                 TextColumn::make('description')
                     ->label(__('filament-max-broadcasts::broadcasts.segment.table.description'))
                     ->limit(60)
@@ -38,8 +55,10 @@ class BroadcastSegmentsTable
                     ->sortable(),
             ])
             ->recordActions([
-                EditAction::make()->iconButton(),
-                DeleteAction::make()->iconButton(),
+                RequestConsentAction::make()->iconButton(),
+                ViewAction::make()->iconButton(),
+                EditAction::make()->authorize($managePermission)->iconButton(),
+                DeleteAction::make()->authorize($managePermission)->iconButton(),
             ])
             ->defaultSort('created_at', 'desc');
     }

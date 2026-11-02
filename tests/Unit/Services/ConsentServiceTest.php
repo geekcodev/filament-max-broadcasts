@@ -112,9 +112,37 @@ class ConsentServiceTest extends TestCase
             'segment_id' => BroadcastSegment::query()->create([
                 'name' => 'Другая рассылка',
                 'chat_ids' => [],
-            ])->getKey(),
+            ])->id,
         ]);
 
         self::assertSame([111], $this->service->answeredChatIds());
+    }
+
+    public function testOptInWithSegmentIdRecordsOnlyIntoThatSegment(): void
+    {
+        $vip = BroadcastSegment::query()->create(['name' => 'VIP', 'chat_ids' => []]);
+        $news = BroadcastSegment::query()->create(['name' => 'Новости', 'chat_ids' => []]);
+
+        $this->service->optIn(111, 222, $vip->id);
+
+        self::assertSame([111], $vip->refresh()->chat_ids);
+        self::assertSame([], $news->refresh()->chat_ids);
+        self::assertSame([], $this->service->consentChatIds());
+    }
+
+    public function testAnsweredChatIdsCanBeReadPerSegment(): void
+    {
+        $vip = BroadcastSegment::query()->create(['name' => 'VIP', 'chat_ids' => []]);
+
+        $this->service->optOut(111, null, $vip->id);
+        $this->service->optIn(222);
+
+        self::assertSame([111], $this->service->answeredChatIds($vip->id));
+    }
+
+    public function testFindSegmentReturnsNullForUnknownId(): void
+    {
+        self::assertNull($this->service->findSegment(999));
+        self::assertNotNull($this->service->findSegment(null));
     }
 }

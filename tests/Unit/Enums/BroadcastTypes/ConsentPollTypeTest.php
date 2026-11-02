@@ -39,27 +39,32 @@ class ConsentPollTypeTest extends TestCase
         self::assertSame('Consent poll', ConsentPoll::ConsentPoll->label());
     }
 
-    public function testButtonRowsAreCallbackButtonsWithConsentPayloads(): void
+    public function testButtonRowsAreEmptyWithoutSegment(): void
     {
-        config()->set('filament-max-broadcasts.bot_username', 'mybot');
+        self::assertSame([], ConsentPoll::ConsentPoll->buttonRows());
+    }
 
-        $rows = ConsentPoll::ConsentPoll->buttonRows();
+    public function testPayloadContainsSegmentAndAction(): void
+    {
+        self::assertSame('consent:7:opt_in', ConsentPoll::payload(7, 'opt_in'));
+        self::assertSame('consent:7:opt_out', ConsentPoll::payload(7, 'opt_out'));
+
+        config()->set('filament-max-broadcasts.consent.payload_prefix', 'vote');
+
+        self::assertSame('vote:7:opt_in', ConsentPoll::payload(7, 'opt_in'));
+    }
+
+    public function testButtonRowsForSegmentCarrySegmentIdInPayload(): void
+    {
+        $rows = ConsentPoll::buttonRowsFor(7);
 
         self::assertCount(1, $rows);
-        self::assertCount(2, $rows[0]->buttons);
-
-        $optIn = $rows[0]->buttons[0];
-        $optOut = $rows[0]->buttons[1];
-
-        self::assertSame(ButtonType::Callback, $optIn->type);
-        self::assertSame('Согласен', $optIn->text);
-        self::assertSame('consent:opt_in', $optIn->payload);
-        self::assertNull($optIn->url);
-
-        self::assertSame(ButtonType::Callback, $optOut->type);
-        self::assertSame('Не согласен', $optOut->text);
-        self::assertSame('consent:opt_out', $optOut->payload);
-        self::assertNull($optOut->url);
+        self::assertSame('consent:7:opt_in', $rows[0]->buttons[0]->payload);
+        self::assertSame('consent:7:opt_out', $rows[0]->buttons[1]->payload);
+        self::assertSame('Да', $rows[0]->buttons[0]->text);
+        self::assertSame('Нет', $rows[0]->buttons[1]->text);
+        self::assertSame(ButtonType::Callback, $rows[0]->buttons[0]->type);
+        self::assertNull($rows[0]->buttons[0]->url);
     }
 
     public function testButtonRowsDependOnConfigTexts(): void
@@ -67,7 +72,7 @@ class ConsentPollTypeTest extends TestCase
         config()->set('filament-max-broadcasts.consent.button_text_opt_in', 'Yes');
         config()->set('filament-max-broadcasts.consent.button_text_opt_out', 'No');
 
-        $buttons = ConsentPoll::ConsentPoll->buttonRows()[0]->buttons;
+        $buttons = ConsentPoll::buttonRowsFor(1)[0]->buttons;
 
         self::assertSame('Yes', $buttons[0]->text);
         self::assertSame('No', $buttons[1]->text);

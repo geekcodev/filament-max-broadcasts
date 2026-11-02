@@ -6,19 +6,19 @@ namespace GeekCo\FilamentMaxBroadcasts\Tests\Feature\Resources;
 
 use GeekCo\FilamentMaxBroadcasts\Enums\BroadcastStatus;
 use GeekCo\FilamentMaxBroadcasts\Jobs\SendBroadcastJob;
-use GeekCo\FilamentMaxBroadcasts\Jobs\SendConsentRequestsJob;
 use GeekCo\FilamentMaxBroadcasts\Models\Broadcast;
 use GeekCo\FilamentMaxBroadcasts\Models\BroadcastRecipient;
+use GeekCo\FilamentMaxBroadcasts\Models\BroadcastSegment;
 use GeekCo\FilamentMaxBroadcasts\Resources\BroadcastResource;
 use GeekCo\FilamentMaxBroadcasts\Resources\Pages\CreateBroadcast;
 use GeekCo\FilamentMaxBroadcasts\Resources\Pages\ListBroadcasts;
 use GeekCo\FilamentMaxBroadcasts\Resources\Pages\ViewBroadcast;
-use GeekCo\FilamentMaxBroadcasts\Services\ConsentService;
 use GeekCo\FilamentMaxBroadcasts\Tests\Fixtures\TestUser;
 use GeekCo\FilamentMaxBroadcasts\Tests\Fixtures\Chats;
 use GeekCo\FilamentMaxBroadcasts\Tests\TestCase;
 use GeekCo\LaravelMaxClient\Enums\MaxChatStatus;
 use GeekCo\LaravelMaxClient\Models\MaxChat;
+use GeekCo\MaxPhpClient\Enum\ChatType;
 use GeekCo\MaxPhpClient\Enum\UploadType;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
@@ -77,6 +77,7 @@ class BroadcastResourceTest extends TestCase
             ->fillForm([
                 'type' => 'news',
                 'text' => 'Hello <script>alert(1)</script><b>world</b>',
+                'recipient_chat_ids' => [11],
             ])
             ->call('create')
             ->assertHasNoFormErrors();
@@ -100,6 +101,37 @@ class BroadcastResourceTest extends TestCase
         $this->actingAs($user);
 
         Livewire::test(CreateBroadcast::class)->assertForbidden();
+    }
+
+    public function testCreateActionIsVisibleWithCreatePermission(): void
+    {
+        $this->actingAs($this->adminUser());
+
+        Livewire::test(ListBroadcasts::class)
+            ->assertSuccessful()
+            // @phpstan-ignore method.notFound
+            ->assertActionVisible('create');
+    }
+
+    public function testCreateActionIsHiddenWithoutCreatePermission(): void
+    {
+        $user = $this->userWithoutBroadcastRights();
+        $user->forceFill(['can_view_broadcasts' => true])->save();
+        $this->actingAs($user);
+
+        Livewire::test(ListBroadcasts::class)
+            ->assertSuccessful()
+            // @phpstan-ignore method.notFound
+            ->assertActionHidden('create');
+    }
+
+    public function testCreatePageIsForbiddenWithoutCreatePermission(): void
+    {
+        $user = $this->userWithoutBroadcastRights();
+        $user->forceFill(['can_view_broadcasts' => true])->save();
+        $this->actingAs($user);
+
+        $this->get(BroadcastResource::getUrl('create'))->assertForbidden();
     }
 
     /**
@@ -197,7 +229,8 @@ class BroadcastResourceTest extends TestCase
 
     public function testRepeatActionCreatesNewBroadcast(): void
     {
-        $original = $this->broadcast(BroadcastStatus::Completed);
+        $this->activeChat();
+        $original = $this->broadcast(BroadcastStatus::Completed, ['recipient_chat_ids' => [11]]);
         $this->actingAs($this->adminUser());
 
         Livewire::test(ViewBroadcast::class, ['record' => $original->getKey()])
@@ -249,7 +282,8 @@ class BroadcastResourceTest extends TestCase
 
     public function testRepeatActionFromTable(): void
     {
-        $original = $this->broadcast(BroadcastStatus::Completed);
+        $this->activeChat();
+        $original = $this->broadcast(BroadcastStatus::Completed, ['recipient_chat_ids' => [11]]);
         $this->actingAs($this->adminUser());
 
         Livewire::test(ListBroadcasts::class)
@@ -260,52 +294,57 @@ class BroadcastResourceTest extends TestCase
         Queue::assertPushed(SendBroadcastJob::class);
     }
 
-    public function testRequestConsentActionIsVisibleForAdmin(): void
+    public function testRepeatWithoutRecipientsIsRejected(): void
+    {
+        $original = $this->broadcast(BroadcastStatus::Completed);
+        $this->actingAs($this->adminUser());
+
+        Livewire::test(ViewBroadcast::class, ['record' => $original->getKey()])
+            ->callAction('repeat');
+
+        self::assertSame(1, Broadcast::query()->count());
+
+        Queue::assertNotPushed(SendBroadcastJob::class);
+    }
+
+    public function testCreateBroadcastRequiresSegmentsOrRecipients(): void
     {
         $this->actingAs($this->adminUser());
 
-        Livewire::test(ListBroadcasts::class)
-            ->assertSuccessful()
+        Livewire::test(CreateBroadcast::class)
+            ->fillForm([
+                'type' => 'news',
+                'text' => 'Hello',
+            ])
+            ->call('create')
             // @phpstan-ignore method.notFound
-            ->assertActionVisible('request_consent');
+            ->assertHasFormErrors(['segment_ids', 'recipient_chat_ids']);
+
+        Queue::assertNothingPushed();
     }
 
-    public function testRequestConsentActionIsHiddenWithoutCreatePermission(): void
+    public function testCreateBroadcastWithSegmentOnlyPassesValidation(): void
     {
-        $user = $this->userWithoutBroadcastRights();
-        $user->forceFill(['can_view_broadcasts' => true])->save();
-        $this->actingAs($user);
-
-        Livewire::test(ListBroadcasts::class)
-            ->assertSuccessful()
-            // @phpstan-ignore method.notFound
-            ->assertActionHidden('request_consent');
-    }
-
-    public function testRequestConsentActionDispatchesJob(): void
-    {
-        $this->activeChat();
         $this->actingAs($this->adminUser());
 
-        Livewire::test(ListBroadcasts::class)
-            ->callAction('request_consent')
-            ->assertHasNoErrors();
+        Chats::create(11, 1, [
+            'status' => MaxChatStatus::Active,
+            'chat_type' => ChatType::Dialog,
+        ]);
+        $segment = BroadcastSegment::query()->create([
+            'name' => 'VIP',
+            'chat_ids' => [11],
+        ]);
 
-        Queue::assertPushed(SendConsentRequestsJob::class);
-    }
+        Livewire::test(CreateBroadcast::class)
+            ->fillForm([
+                'type' => 'news',
+                'text' => 'Hello',
+                'segment_ids' => [$segment->getKey()],
+            ])
+            ->call('create')
+            ->assertHasNoFormErrors();
 
-    public function testRequestConsentActionSkipsWhenEveryoneAnswered(): void
-    {
-        $this->activeChat();
-
-        app(ConsentService::class)->optIn(11, 1);
-
-        $this->actingAs($this->adminUser());
-
-        Livewire::test(ListBroadcasts::class)
-            ->callAction('request_consent')
-            ->assertHasNoErrors();
-
-        Queue::assertNotPushed(SendConsentRequestsJob::class);
+        Queue::assertPushed(SendBroadcastJob::class);
     }
 }

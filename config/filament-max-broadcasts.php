@@ -70,17 +70,18 @@ return [
     ],
 
     // Согласие получателей на рассылку (opt-in через callback-кнопки).
-    // Слушатель HandleConsentCallback обрабатывает MessageCallback и складывает
-    // chat_id в сегмент «Новости и акции» (consent.segment_name). Прочие сегменты
-    // согласие не затрагивает: кнопка и записи привязаны только к этому сегменту.
-    // Payload кнопок: consent:<action>.
+    // Слушатель HandleConsentCallback обрабатывает MessageCallback и привязывает
+    // ответ к сегменту из payload кнопки. Payload кнопок всегда
+    // consent:<segmentId>:<action>; опросы без сегмента не принимаются.
+    // segment_name — стартовый сегмент для вызовов ConsentService без segmentId.
+    // :segment в request_message — название сегмента.
     'consent' => [
         'consent_model'       => GeekCo\FilamentMaxBroadcasts\Models\BroadcastConsent::class,
         'segment_name'        => 'Новости и акции',
         'payload_prefix'      => 'consent',
-        'request_message'     => 'Согласны ли вы получать наши новости и акции?',
-        'button_text_opt_in'  => 'Согласен',
-        'button_text_opt_out' => 'Не согласен',
+        'request_message'     => 'Вы согласны получать рассылку «:segment»?',
+        'button_text_opt_in'  => 'Да',
+        'button_text_opt_out' => 'Нет',
         'answer_notification_opt_in'  => 'Вы согласились на получение рассылок.',
         'answer_notification_opt_out' => 'Вы отказались от получения рассылок.',
     ],

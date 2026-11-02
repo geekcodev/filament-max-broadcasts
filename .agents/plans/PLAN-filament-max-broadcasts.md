@@ -109,6 +109,19 @@
 
 ## Готово
 
+- (2026-11-02) Завершён блок согласия v1.1.2: legacy-payload `consent:<action>` удалён, слушатель принимает только
+  `consent:<segmentId>:<action>`; после ответа сообщение с опросом удаляется (`deleteMessage`), при ошибке кнопки
+  убираются правкой. `ConsentPoll::buttonRows()` больше не строит кнопки без сегмента. Журнал:
+  `.agents/journals/sessions/2026-11-02-consent-delete-message.md`. Gate: 302 теста, покрытие 97.02% строк, чистая
+  установка без lock.
+- (2026-10-30) Кнопка «Создать» закрыта правом `broadcasts.create`: `ListBroadcastSegments` объявляет `CreateAction` в
+  `getHeaderActions()` (в Filament v5 `ListRecords` её не добавляет), на `ListBroadcasts` добавлено явное
+  `->authorize(...)` — иначе действие разрешено всем, кто вправе открыть список. План:
+  `.agents/plans/2026-10-30-segment-create-action.md`. Gate: 251 тест, покрытие 97.92% строк, чистая установка без lock.
+- (2026-10-30) Страница просмотра сегмента `BroadcastSegmentResource`: `ViewBroadcastSegment` + infolist со списком
+  чатов и именами из `ChatRegistry`, действие «Просмотр» в таблице, `canView()` по `broadcasts.view`; правка/удаление на
+  странице и в таблице — под `broadcasts.manage`. Gate: 245 тестов, покрытие 97.92% строк, включая чистую установку без
+  lock.
 - (2026-10-03) Миграции пакета переведены в полосу `0000_03`, позиция выведена из графа FK (`created_by` ссылается на
   `users`), guard `Schema::hasTable()` во всех шести create-миграциях, тест `tests/Feature/MigrationOrderTest.php`;
   релиз v1.1.1. Осталось перед релизом: Gate в условиях CI и `composer security-audit` (Packagist недоступен из

@@ -4,9 +4,12 @@ declare(strict_types=1);
 
 namespace GeekCo\FilamentMaxBroadcasts\Support;
 
+use Filament\Actions\Action;
 use Filament\Forms\Components\Select;
+use Filament\Schemas\Components\Utilities\Set;
 use GeekCo\LaravelMaxClient\Enums\MaxChatStatus;
 use GeekCo\LaravelMaxClient\Models\MaxChat;
+use GeekCo\MaxPhpClient\Enum\ChatType;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 
@@ -14,33 +17,53 @@ class ChatSelectionField
 {
     private const OPTION_LIMIT = 50;
 
+    private const LABEL_CHUNK = 500;
+
+    /**
+     * @param  string|null  $helperText
+     */
     public static function make(
         string $statePath,
         string $label,
         ?string $helperText = null,
         bool $required = false,
+        bool $dialogsOnly = false,
     ): Select {
-        return Select::make($statePath)
+        $field = Select::make($statePath)
             ->label($label)
             ->helperText($helperText)
             ->multiple()
             ->searchable()
-            ->options(static fn (): array => self::options())
-            ->getSearchResultsUsing(static fn (string $search): array => self::searchResults($search))
+            ->options(static fn (): array => self::options($dialogsOnly))
+            ->getSearchResultsUsing(static fn (string $search): array => self::searchResults($search, $dialogsOnly))
             ->getOptionLabelsUsing(static fn (array $values): array => self::optionLabels($values))
             ->allowHtml()
             ->required($required)
-            ->columnSpanFull();
+            ->columnSpanFull()
+            ->hintAction(
+                Action::make('select_all')
+                    ->label(__('filament-max-broadcasts::broadcasts.chat_selection.select_all'))
+                    ->link()
+                    ->action(static function (Set $set) use ($statePath, $dialogsOnly): void {
+                        $set($statePath, self::allIds($dialogsOnly));
+                    }),
+            );
+
+        if ($dialogsOnly) {
+            $field->rule(new DialogsOnlyRule());
+        }
+
+        return $field;
     }
 
     /**
      * @return array<int, string>
      */
-    public static function options(): array
+    public static function options(bool $dialogsOnly = false): array
     {
         $options = [];
 
-        foreach (self::activeChatsQuery()
+        foreach (self::activeChatsQuery($dialogsOnly)
             ->limit(self::OPTION_LIMIT)
             ->get()
             ->unique('chat_id') as $chat) {
@@ -53,7 +76,7 @@ class ChatSelectionField
     /**
      * @return array<int, string>
      */
-    public static function searchResults(string $search): array
+    public static function searchResults(string $search, bool $dialogsOnly = false): array
     {
         if (trim($search) === '') {
             return [];
@@ -61,7 +84,7 @@ class ChatSelectionField
 
         $options = [];
 
-        foreach (self::activeChatsQuery()
+        foreach (self::activeChatsQuery($dialogsOnly)
             ->where(static function (Builder $query) use ($search): void {
                 $query->where('chat_id', 'like', "%{$search}%");
                 ChatRegistry::whereUserLike($query, $search);
@@ -76,6 +99,30 @@ class ChatSelectionField
     }
 
     /**
+     * Идентификаторы всех активных чатов (для действия «Выбрать всех»), без лимита вариантов.
+     *
+     * @return list<int>
+     */
+    public static function allIds(bool $dialogsOnly = false): array
+    {
+        $chatsModel = ChatRegistry::model();
+
+        $query = $chatsModel::query()->where('status', MaxChatStatus::Active);
+
+        if ($dialogsOnly) {
+            $query->where('chat_type', ChatType::Dialog->value);
+        }
+
+        return array_values(array_unique(array_map(
+            static fn (mixed $chatId): int => (int) (is_scalar($chatId) ? $chatId : 0),
+            $query->orderByDesc('last_activity_at')->pluck('chat_id')->all(),
+        )));
+    }
+
+    /**
+     * Подписи выбранных значений без лимита вариантов: после «Выбрать всех» все значения
+     * выводятся полностью, а не сырыми ID.
+     *
      * @param  array<mixed>  $values
      * @return array<int|string, string>
      */
@@ -92,12 +139,13 @@ class ChatSelectionField
 
         $labels = [];
 
-        foreach (self::activeChatsQuery()
-            ->whereIn('chat_id', $ids)
-            ->limit(self::OPTION_LIMIT)
-            ->get()
-            ->unique('chat_id') as $chat) {
-            $labels[ChatRegistry::chatId($chat)] = self::labelFor($chat);
+        foreach (array_chunk($ids, self::LABEL_CHUNK) as $chunk) {
+            foreach (self::activeChatsQuery()
+                ->whereIn('chat_id', $chunk)
+                ->get()
+                ->unique('chat_id') as $chat) {
+                $labels[ChatRegistry::chatId($chat)] = self::labelFor($chat);
+            }
         }
 
         foreach ($ids as $value) {
@@ -111,18 +159,29 @@ class ChatSelectionField
     {
         $chatId = ChatRegistry::chatId($chat);
 
-        $badge = sprintf(
+        return sprintf(
+            '<span style="display:inline-flex;align-items:center;gap:.5rem;min-width:0">%s<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">%s</span><span style="color:var(--gray-400);flex-shrink:0">(ID: %d)</span></span>',
+            self::typeBadge($chat),
+            e(self::displayName($chat)),
+            $chatId,
+        );
+    }
+
+    public static function typeBadge(Model $chat): string
+    {
+        return sprintf(
             '<span class="fi-badge fi-size-sm" style="background-color:var(--%s-50);color:var(--%s-700)">%s</span>',
             self::chatTypeColor($chat),
             self::chatTypeColor($chat),
             e(self::chatTypeLabel($chat)),
         );
+    }
 
+    public static function idBadge(int $id): string
+    {
         return sprintf(
-            '<span style="display:inline-flex;align-items:center;gap:.5rem;min-width:0">%s<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">%s</span><span style="color:var(--gray-400);flex-shrink:0">(ID: %d)</span></span>',
-            $badge,
-            e(self::displayName($chat)),
-            $chatId,
+            '<span class="fi-badge fi-size-sm" style="background-color:var(--gray-50);color:var(--gray-700)">ID: %d</span>',
+            $id,
         );
     }
 
@@ -157,16 +216,54 @@ class ChatSelectionField
     }
 
     /**
+     * Среди переданных chat_id — те, у которых в реестре тип «диалог» (статус не учитывается:
+     * тип чата не меняется, а проверка нужна для сохранения сегмента).
+     *
+     * @param  array<mixed>  $ids
+     * @return list<int>
+     */
+    public static function dialogIdsAmong(array $ids): array
+    {
+        $ids = array_values(array_map('intval', array_filter($ids, is_scalar(...))));
+
+        if ($ids === []) {
+            return [];
+        }
+
+        $chatsModel = ChatRegistry::model();
+
+        $result = [];
+
+        foreach (array_chunk($ids, self::LABEL_CHUNK) as $chunk) {
+            /** @var int|string $chatId */
+            foreach ($chatsModel::query()
+                ->whereIn('chat_id', $chunk)
+                ->where('chat_type', ChatType::Dialog->value)
+                ->pluck('chat_id') as $chatId) {
+                $result[] = (int) $chatId;
+            }
+        }
+
+        return $result;
+    }
+
+    /**
      * @return Builder<MaxChat>
      */
-    private static function activeChatsQuery(): Builder
+    private static function activeChatsQuery(bool $dialogsOnly = false): Builder
     {
         $chatsModel = ChatRegistry::model();
 
-        return ChatRegistry::withUsers(
+        $query = ChatRegistry::withUsers(
             $chatsModel::query()
                 ->where('status', MaxChatStatus::Active)
                 ->orderByDesc('last_activity_at'),
         );
+
+        if ($dialogsOnly) {
+            $query->where('chat_type', ChatType::Dialog->value);
+        }
+
+        return $query;
     }
 }
