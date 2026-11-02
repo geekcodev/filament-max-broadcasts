@@ -6,6 +6,7 @@ namespace GeekCo\FilamentMaxBroadcasts\Jobs;
 
 use GeekCo\FilamentMaxBroadcasts\Contracts\BroadcastTypeContract;
 use GeekCo\FilamentMaxBroadcasts\Enums\BroadcastTypes\ConsentPoll;
+use GeekCo\FilamentMaxBroadcasts\Models\BroadcastSegment;
 use GeekCo\FilamentMaxBroadcasts\Services\BroadcastSender;
 use GeekCo\FilamentMaxBroadcasts\Services\BroadcastTextSanitizer;
 use GeekCo\FilamentMaxBroadcasts\Services\ConsentRequestService;
@@ -23,12 +24,12 @@ use Illuminate\Support\Facades\Log;
 use Throwable;
 
 /**
- * Фоновая отправка запроса согласия всем ещё не ответившим.
+ * Фоновая отправка запроса согласия по сегменту всем ещё не ответившим диалогам.
  *
  * Запрос не создаёт Broadcast: факт получения сознательно не фиксируется
- * (требование пользователя — ответившие запрос больше не получают, а
- * проигнорировавшие получают снова). Получатели переопределяются на момент
- * выполнения, lock защищает от параллельных запусков кнопкой.
+ * (ответившие в сегменте запрос больше не получают, а проигнорировавшие —
+ * получают снова). Получатели переопределяются на момент выполнения, lock на
+ * сегмент защищает от параллельных запусков кнопкой.
  */
 class SendConsentRequestsJob implements ShouldQueue
 {
@@ -44,7 +45,7 @@ class SendConsentRequestsJob implements ShouldQueue
     /** @var list<int> */
     public array $backoff;
 
-    public function __construct()
+    public function __construct(public int $segmentId)
     {
         $this->tries = config()->integer('filament-max-broadcasts.queue.tries', 3);
         $this->timeout = config()->integer('filament-max-broadcasts.queue.timeout', 3600);
@@ -65,7 +66,7 @@ class SendConsentRequestsJob implements ShouldQueue
     ): void {
         $lockTtl = config()->integer('filament-max-broadcasts.queue.lock_ttl_seconds', 600);
 
-        $lock = Cache::lock('consent:send-request', $lockTtl);
+        $lock = Cache::lock('consent:send-request:'.$this->segmentId, $lockTtl);
 
         if (! $lock->get()) {
             Log::warning('Consent: request send skipped, lock held by another job.');
@@ -90,29 +91,54 @@ class SendConsentRequestsJob implements ShouldQueue
         ConsentRequestService $service,
         BroadcastTextSanitizer $sanitizer,
     ): void {
+        $segment = $service->findSegment($this->segmentId);
+
+        if (! $segment instanceof BroadcastSegment) {
+            Log::warning('Consent: request send skipped, segment not found.', ['segment_id' => $this->segmentId]);
+
+            return;
+        }
+
         /** @var Collection<int, MaxChat> $chats */
-        $chats = $service->eligibleChats();
+        $chats = $service->eligibleChats($segment);
 
         if ($chats->isEmpty()) {
             return;
         }
 
-        $message = $sanitizer->toMaxHtml(
-            config()->string('filament-max-broadcasts.consent.request_message', 'Согласны ли вы получать наши новости и акции?'),
-        );
+        $message = $sanitizer->toMaxHtml($this->requestText($segment));
         $type = ConsentPoll::ConsentPoll;
+        $buttonRows = ConsentPoll::buttonRowsFor($this->segmentId);
         $batchSize = config()->integer('filament-max-broadcasts.queue.batch_size', 25);
 
         foreach ($chats->chunk($batchSize) as $chunk) {
             /** @var MaxChat $chat */
             foreach ($chunk as $chat) {
-                $this->sendTo($sender, $chat, $message, $type);
+                $this->sendTo($sender, $chat, $message, $type, $buttonRows);
             }
         }
     }
 
-    private function sendTo(BroadcastSender $sender, MaxChat $chat, string $message, BroadcastTypeContract $type): void
+    private function requestText(BroadcastSegment $segment): string
     {
+        $template = config()->string(
+            'filament-max-broadcasts.consent.request_message',
+            'Вы согласны получать рассылку «:segment»?',
+        );
+
+        return str_replace(':segment', e($segment->name), $template);
+    }
+
+    /**
+     * @param  list<\GeekCo\MaxPhpClient\Dto\InlineKeyboardButtonRow>  $buttonRows
+     */
+    private function sendTo(
+        BroadcastSender $sender,
+        MaxChat $chat,
+        string $message,
+        BroadcastTypeContract $type,
+        array $buttonRows,
+    ): void {
         /** @var int $chatId */
         $chatId = $chat->getAttribute('chat_id');
         $userId = ChatRegistry::userId($chat);
@@ -123,6 +149,7 @@ class SendConsentRequestsJob implements ShouldQueue
                 $message,
                 [],
                 $type,
+                $buttonRows,
             );
         } catch (Throwable $exception) {
             Log::warning('Consent: request send failed.', [
@@ -136,6 +163,7 @@ class SendConsentRequestsJob implements ShouldQueue
     public function failed(Throwable $exception): void
     {
         Log::error('SendConsentRequestsJob failed', [
+            'segment_id' => $this->segmentId,
             'error' => $exception->getMessage(),
         ]);
     }

@@ -37,6 +37,10 @@ return [
     ],
 
     'chat_types' => [
+    'chat_selection' => [
+        'select_all' => 'Select all',
+    ],
+
         'dialog' => 'Dialog',
         'chat' => 'Group',
         'channel' => 'Channel',
@@ -64,12 +68,12 @@ return [
         'scheduled_at' => 'Send time',
         'scheduled_at_helper' => 'Leave empty to send immediately after creation.',
         'recipients_section' => 'Recipients',
-        'recipients_section_description' => 'Pick one or more recipient segments or tick specific chats manually. Leave everything empty to send to all active chats.',
+        'recipients_section_description' => 'Pick segments or tick chats manually. At least one of the two fields is required.',
         'segments' => 'Recipient segments',
-        'segment_default' => 'No segments (all active chats)',
-        'segments_helper' => 'Selecting segments fills the recipient list with the union of their chats. You can adjust the list manually.',
+        'segment_default' => 'Pick segments',
+        'segments_helper' => 'Only segments with recipients are shown; the badge shows the number of active dialogs. Picking segments fills the recipient list, which you can adjust.',
         'recipients' => 'Recipients',
-        'recipients_helper' => 'Tick the chats to send to. Empty means all active chats.',
+        'recipients_helper' => 'Tick the chats to send to. Dialogs, groups and channels are all allowed.',
         'attachments_section' => 'Attachments',
         'attachments' => 'Attached files',
         'attachment_item' => 'Attachment',
@@ -86,7 +90,7 @@ return [
         'stats_delivered' => 'Delivered',
         'stats_failed' => 'Failed',
         'stats_recipients' => 'Recipient group',
-        'no_segment' => 'All active chats',
+        'no_segment' => 'Recipients picked manually',
     ],
 
     'table' => [
@@ -110,7 +114,7 @@ return [
         'repeat_submit' => 'Repeat',
         'request_consent' => 'Request consent',
         'request_consent_heading' => 'Send the consent request?',
-        'request_consent_description' => 'The request "Do you agree to receive our news and promos?" will be sent to all active chats that have not replied yet. Those who already replied will not receive it again.',
+        'request_consent_description' => 'The request “Do you agree to receive the mailing “segment name”?” will be sent to all active dialogs that have not replied to this segment yet. Those who already replied to it will not receive it again.',
         'request_consent_submit' => 'Send',
         'delete' => 'Delete',
         'send_now' => 'Send now',
@@ -128,7 +132,8 @@ return [
             'name' => 'Name',
             'description' => 'Description',
             'recipients' => 'Recipients',
-            'recipients_helper' => 'Tick the chats to include in the segment.',
+            'recipients_helper' => 'Only dialogs can be added to a segment. Groups and channels are picked in the broadcast recipients.',
+            'dialogs_only_error' => 'Only dialogs can be added to a segment.',
         ],
         'table' => [
             'id' => 'ID',
@@ -138,26 +143,37 @@ return [
             'no_description' => '—',
             'created_at' => 'Created',
         ],
+        'view' => [
+            'info_section' => 'Segment',
+            'recipients_section' => 'Recipients',
+            'recipients_section_description' => 'Dialogs that receive broadcasts from this segment.',
+            'no_recipients' => 'No recipients',
+            'chat_fallback' => 'Chat :id',
+            'non_dialog_warning' => 'The segment contains groups or channels: :count. Segment broadcasts will not reach them.',
+        ],
     ],
 
     'consent_table' => [
         'id' => 'ID',
-        'chat_type' => 'Type',
         'name' => 'Name',
         'anonymous_chat' => 'Chat :id',
         'chat_id' => 'MAX chat_id',
+        'user_id' => 'MAX user_id',
         'segment' => 'Segment',
         'action' => 'Action',
         'source' => 'Source',
         'created_at' => 'Date',
         'filter_action' => 'Action',
+        'filter_segment' => 'Segment',
+        'no_segment' => 'No segment',
     ],
 
     'notifications' => [
         'broadcast_started' => 'Broadcast started',
         'broadcast_cancelled' => 'Broadcast cancelled',
         'consent_request_started' => 'Consent request sent to :count recipients',
-        'consent_no_recipients' => 'No recipients for the consent request — everyone has already replied',
+        'consent_no_recipients' => 'No dialogs for the consent request — everyone has already replied',
+        'repeat_empty' => 'This broadcast cannot be repeated: it had no recipients',
     ],
 
     'recipients' => [

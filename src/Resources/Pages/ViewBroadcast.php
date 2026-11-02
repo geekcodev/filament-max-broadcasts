@@ -12,6 +12,7 @@ use GeekCo\FilamentMaxBroadcasts\Models\Broadcast;
 use GeekCo\FilamentMaxBroadcasts\Models\BroadcastAttachment;
 use GeekCo\FilamentMaxBroadcasts\Resources\BroadcastResource;
 use GeekCo\FilamentMaxBroadcasts\Services\BroadcastService;
+use InvalidArgumentException;
 
 class ViewBroadcast extends ViewRecord
 {
@@ -48,15 +49,24 @@ class ViewBroadcast extends ViewRecord
                         ],
                     )->all();
 
-                    app(BroadcastService::class)->create(
-                        text: $broadcast->text,
-                        scheduledAt: null,
-                        creator: $user,
-                        attachments: $attachments,
-                        type: $broadcast->type,
-                        chatIds: $broadcast->recipient_chat_ids,
-                        segments: array_values($broadcast->segments->all()),
-                    );
+                    try {
+                        app(BroadcastService::class)->create(
+                            text: $broadcast->text,
+                            scheduledAt: null,
+                            creator: $user,
+                            attachments: $attachments,
+                            type: $broadcast->type,
+                            chatIds: $broadcast->recipient_chat_ids,
+                            segments: array_values($broadcast->segments->all()),
+                        );
+                    } catch (InvalidArgumentException) {
+                        Notification::make()
+                            ->title(__('filament-max-broadcasts::broadcasts.notifications.repeat_empty'))
+                            ->danger()
+                            ->send();
+
+                        return;
+                    }
 
                     Notification::make()
                         ->title(__('filament-max-broadcasts::broadcasts.notifications.broadcast_started'))

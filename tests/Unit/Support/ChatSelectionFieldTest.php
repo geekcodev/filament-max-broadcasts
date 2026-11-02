@@ -235,4 +235,55 @@ class ChatSelectionFieldTest extends TestCase
         self::assertSame('recipient_chat_ids', $select->getName());
         self::assertSame('Получатели', $select->getLabel());
     }
+
+    public function testOptionsCanBeLimitedToDialogs(): void
+    {
+        Chats::create(11, 1, ['status' => MaxChatStatus::Active, 'chat_type' => ChatType::Dialog]);
+        Chats::create(22, 22, ['status' => MaxChatStatus::Active, 'chat_type' => ChatType::Chat]);
+
+        self::assertSame([11], array_keys(ChatSelectionField::options(dialogsOnly: true)));
+        self::assertEqualsCanonicalizing([11, 22], array_keys(ChatSelectionField::options()));
+    }
+
+    public function testSearchResultsCanBeLimitedToDialogs(): void
+    {
+        Chats::create(11, 1, ['status' => MaxChatStatus::Active, 'chat_type' => ChatType::Dialog]);
+        Chats::create(12, 12, ['status' => MaxChatStatus::Active, 'chat_type' => ChatType::Channel]);
+
+        self::assertSame([11], array_keys(ChatSelectionField::searchResults('1', dialogsOnly: true)));
+    }
+
+    public function testAllIdsReturnsEveryActiveChatBeyondOptionLimit(): void
+    {
+        for ($chatId = 100; $chatId < 160; $chatId++) {
+            Chats::create($chatId, $chatId, ['status' => MaxChatStatus::Active, 'chat_type' => ChatType::Dialog]);
+        }
+        Chats::create(999, 999, ['status' => MaxChatStatus::Stopped, 'chat_type' => ChatType::Dialog]);
+
+        self::assertCount(60, ChatSelectionField::allIds());
+        self::assertCount(60, ChatSelectionField::allIds(dialogsOnly: true));
+    }
+
+    public function testAllIdsCanBeLimitedToDialogs(): void
+    {
+        Chats::create(11, 1, ['status' => MaxChatStatus::Active, 'chat_type' => ChatType::Dialog]);
+        Chats::create(22, 22, ['status' => MaxChatStatus::Active, 'chat_type' => ChatType::Chat]);
+
+        self::assertSame([11], ChatSelectionField::allIds(dialogsOnly: true));
+    }
+
+    public function testOptionLabelsCoverSelectionBeyondOptionLimit(): void
+    {
+        $values = [];
+
+        for ($chatId = 100; $chatId < 160; $chatId++) {
+            Chats::create($chatId, $chatId, ['status' => MaxChatStatus::Active, 'chat_type' => ChatType::Dialog]);
+            $values[] = $chatId;
+        }
+
+        $labels = ChatSelectionField::optionLabels($values);
+
+        self::assertCount(60, $labels);
+        self::assertStringContainsString('(ID: 159)', $labels[159]);
+    }
 }

@@ -15,6 +15,7 @@ use GeekCo\FilamentMaxBroadcasts\Tests\Fixtures\Chats;
 use GeekCo\FilamentMaxBroadcasts\Tests\TestCase;
 use GeekCo\LaravelMaxClient\Enums\MaxChatStatus;
 use GeekCo\LaravelMaxClient\Models\MaxUser;
+use GeekCo\MaxPhpClient\Enum\ChatType;
 use Livewire\Livewire;
 
 class BroadcastRecipientsRelationManagerTest extends TestCase
@@ -213,5 +214,26 @@ class BroadcastRecipientsRelationManagerTest extends TestCase
             ->filterTable('status', BroadcastRecipientStatus::Failed)
             ->assertCanSeeTableRecords([$failed])
             ->assertCanNotSeeTableRecords([$pending]);
+    }
+
+    public function testChatAndUserIdsRenderAsBadges(): void
+    {
+        $this->actingAs($this->adminUser());
+
+        Chats::create(11, 1, [
+            'status' => MaxChatStatus::Active,
+            'chat_type' => ChatType::Dialog,
+        ]);
+
+        $broadcast = $this->broadcast();
+        $recipient = $this->recipient($broadcast);
+
+        $this->relationManager($broadcast)
+            // @phpstan-ignore method.notFound
+            ->assertCanSeeTableRecords([$recipient])
+            ->assertSee('fi-badge', false)
+            ->assertSee(__('filament-max-broadcasts::broadcasts.chat_types.dialog'))
+            ->assertSee('ID: 11')
+            ->assertSee('ID: 1');
     }
 }

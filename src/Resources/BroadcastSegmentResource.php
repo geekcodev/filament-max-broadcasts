@@ -12,7 +12,10 @@ use GeekCo\FilamentMaxBroadcasts\Models\BroadcastSegment;
 use GeekCo\FilamentMaxBroadcasts\Resources\Pages\CreateBroadcastSegment;
 use GeekCo\FilamentMaxBroadcasts\Resources\Pages\EditBroadcastSegment;
 use GeekCo\FilamentMaxBroadcasts\Resources\Pages\ListBroadcastSegments;
+use GeekCo\FilamentMaxBroadcasts\Resources\Pages\ViewBroadcastSegment;
+use GeekCo\FilamentMaxBroadcasts\Resources\RelationManagers\BroadcastConsentsRelationManager;
 use GeekCo\FilamentMaxBroadcasts\Resources\Schemas\BroadcastSegmentForm;
+use GeekCo\FilamentMaxBroadcasts\Resources\Schemas\BroadcastSegmentInfolist;
 use GeekCo\FilamentMaxBroadcasts\Resources\Tables\BroadcastSegmentsTable;
 use Illuminate\Database\Eloquent\Model;
 
@@ -68,6 +71,11 @@ class BroadcastSegmentResource extends Resource
         return BroadcastSegmentForm::configure($schema);
     }
 
+    public static function infolist(Schema $schema): Schema
+    {
+        return BroadcastSegmentInfolist::configure($schema);
+    }
+
     public static function table(Table $table): Table
     {
         return BroadcastSegmentsTable::configure($table);
@@ -85,6 +93,15 @@ class BroadcastSegmentResource extends Resource
     public static function canCreate(): bool
     {
         $permission = config()->string('filament-max-broadcasts.permissions.create', 'broadcasts.create');
+
+        $user = auth()->user();
+
+        return $user !== null && $user->can($permission);
+    }
+
+    public static function canView(Model $record): bool
+    {
+        $permission = config()->string('filament-max-broadcasts.permissions.view', 'broadcasts.view');
 
         $user = auth()->user();
 
@@ -109,11 +126,19 @@ class BroadcastSegmentResource extends Resource
         return $user !== null && $user->can($permission);
     }
 
+    public static function getRelations(): array
+    {
+        return [
+            BroadcastConsentsRelationManager::class,
+        ];
+    }
+
     public static function getPages(): array
     {
         return [
             'index' => ListBroadcastSegments::route('/'),
             'create' => CreateBroadcastSegment::route('/create'),
+            'view' => ViewBroadcastSegment::route('/{record}'),
             'edit' => EditBroadcastSegment::route('/{record}/edit'),
         ];
     }

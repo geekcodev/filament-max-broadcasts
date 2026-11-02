@@ -30,9 +30,15 @@ class BroadcastSender
      * Отправляет рассылку одному получателю.
      *
      * @param  list<array{upload_type: string, path: string}>  $media
+     * @param  list<\GeekCo\MaxPhpClient\Dto\InlineKeyboardButtonRow>|null  $buttonRows  кнопки вместо кнопок типа (запрос согласия по сегменту)
      */
-    public function send(Recipient $recipient, string $text, array $media, BroadcastTypeContract $type): void
-    {
+    public function send(
+        Recipient $recipient,
+        string $text,
+        array $media,
+        BroadcastTypeContract $type,
+        ?array $buttonRows = null,
+    ): void {
         $attachments = [];
 
         foreach ($media as $item) {
@@ -45,7 +51,7 @@ class BroadcastSender
             $attachments[] = $this->uploadMedia($uploadType, $item['path']);
         }
 
-        $rows = $type->buttonRows();
+        $rows = $buttonRows ?? $type->buttonRows();
 
         if ($rows !== []) {
             $attachments[] = AttachmentRequest::create(

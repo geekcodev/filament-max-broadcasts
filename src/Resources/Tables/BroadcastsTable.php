@@ -16,6 +16,7 @@ use GeekCo\FilamentMaxBroadcasts\Models\Broadcast;
 use GeekCo\FilamentMaxBroadcasts\Models\BroadcastAttachment;
 use GeekCo\FilamentMaxBroadcasts\Services\BroadcastService;
 use GeekCo\FilamentMaxBroadcasts\Support\BroadcastTypes;
+use InvalidArgumentException;
 
 class BroadcastsTable
 {
@@ -95,15 +96,24 @@ class BroadcastsTable
                             ],
                         )->all();
 
-                        app(BroadcastService::class)->create(
-                            text: $record->text,
-                            scheduledAt: null,
-                            creator: $user,
-                            attachments: $attachments,
-                            type: $record->type,
-                            chatIds: $record->recipient_chat_ids,
-                            segments: array_values($record->segments->all()),
-                        );
+                        try {
+                            app(BroadcastService::class)->create(
+                                text: $record->text,
+                                scheduledAt: null,
+                                creator: $user,
+                                attachments: $attachments,
+                                type: $record->type,
+                                chatIds: $record->recipient_chat_ids,
+                                segments: array_values($record->segments->all()),
+                            );
+                        } catch (InvalidArgumentException) {
+                            Notification::make()
+                                ->title(__('filament-max-broadcasts::broadcasts.notifications.repeat_empty'))
+                                ->danger()
+                                ->send();
+
+                            return;
+                        }
 
                         Notification::make()
                             ->title(__('filament-max-broadcasts::broadcasts.notifications.broadcast_started'))

@@ -7,6 +7,7 @@ namespace GeekCo\FilamentMaxBroadcasts\Tests\Unit\Listeners;
 use GeekCo\FilamentMaxBroadcasts\Enums\BroadcastConsentAction;
 use GeekCo\FilamentMaxBroadcasts\Listeners\HandleConsentCallback;
 use GeekCo\FilamentMaxBroadcasts\Models\BroadcastConsent;
+use GeekCo\FilamentMaxBroadcasts\Models\BroadcastSegment;
 use GeekCo\FilamentMaxBroadcasts\Services\ConsentService;
 use GeekCo\FilamentMaxBroadcasts\Tests\Support\MockHttpClient;
 use GeekCo\FilamentMaxBroadcasts\Tests\TestCase;
@@ -146,7 +147,7 @@ class HandleConsentCallbackTest extends TestCase
     {
         [$http, , $listener] = $this->makeListener();
 
-        $update = $this->callbackUpdate('consent:subscribed', 111, 222);
+        $update = $this->callbackUpdate('consent:1:subscribed', 111, 222);
 
         $listener->handle(new MaxUpdateReceived($update));
 
@@ -156,26 +157,24 @@ class HandleConsentCallbackTest extends TestCase
 
     public function testOptInRecordsConsentAndAnswersCallback(): void
     {
+        $segment = BroadcastSegment::query()->create(['name' => 'Новости', 'chat_ids' => []]);
+
         [$http, , $listener] = $this->makeListener([
-            $this->successResponse(), // editMessage (убрать кнопки)
-            $this->messageResponse(), // sendMessage (подтверждение)
+            $this->successResponse(), // deleteMessage
+            $this->messageResponse(), // sendMessage
             $this->successResponse(), // sendAnswer
         ]);
 
-        $update = $this->callbackUpdate('consent:opt_in', 111, 222);
+        $update = $this->callbackUpdate('consent:'.$segment->id.':opt_in', 111, 222);
 
         $listener->handle(new MaxUpdateReceived($update));
 
         self::assertSame(3, $http->callCount);
 
-        self::assertSame('PUT', $http->requests[0]->getMethod());
-        $editUri = (string) $http->requests[0]->getUri();
-        self::assertStringContainsString('/messages', $editUri);
-        self::assertStringContainsString('message_id=mid-poll', $editUri);
-        $editBody = json_decode((string) $http->requests[0]->getBody(), true, 512, JSON_THROW_ON_ERROR);
-        self::assertIsArray($editBody);
-        self::assertSame('Согласны ли вы получать наши новости и акции?', $editBody['text'] ?? null);
-        self::assertArrayNotHasKey('attachments', $editBody);
+        self::assertSame('DELETE', $http->requests[0]->getMethod());
+        $deleteUri = (string) $http->requests[0]->getUri();
+        self::assertStringContainsString('/messages', $deleteUri);
+        self::assertStringContainsString('message_id=mid-poll', $deleteUri);
 
         self::assertSame('POST', $http->requests[1]->getMethod());
         $sendUri = (string) $http->requests[1]->getUri();
@@ -190,19 +189,21 @@ class HandleConsentCallbackTest extends TestCase
         self::assertStringContainsString('/answers', $answerUri);
         self::assertStringContainsString('callback_id=cb-1', $answerUri);
 
-        self::assertSame([111], $this->service->consentChatIds());
+        self::assertSame([111], $segment->refresh()->chat_ids);
 
         $consent = BroadcastConsent::query()->first();
         self::assertNotNull($consent);
         self::assertSame(111, $consent->chat_id);
         self::assertSame(222, $consent->user_id);
         self::assertSame(BroadcastConsentAction::OptIn, $consent->action);
+        self::assertSame($segment->id, $consent->segment_id);
     }
 
     public function testOptOutRemovesChatAndAnswersCallback(): void
     {
-        $this->service->optIn(111, 222);
-        $this->service->optIn(333);
+        $segment = BroadcastSegment::query()->create(['name' => 'Новости', 'chat_ids' => []]);
+        $this->service->optIn(111, 222, $segment->id);
+        $this->service->optIn(333, null, $segment->id);
 
         [$http, , $listener] = $this->makeListener([
             $this->successResponse(),
@@ -210,17 +211,14 @@ class HandleConsentCallbackTest extends TestCase
             $this->successResponse(),
         ]);
 
-        $update = $this->callbackUpdate('consent:opt_out', 111, 222);
+        $update = $this->callbackUpdate('consent:'.$segment->id.':opt_out', 111, 222);
 
         $listener->handle(new MaxUpdateReceived($update));
 
         self::assertSame(3, $http->callCount);
-        self::assertSame([333], $this->service->consentChatIds());
+        self::assertSame([333], $segment->refresh()->chat_ids);
 
-        $editBody = json_decode((string) $http->requests[0]->getBody(), true, 512, JSON_THROW_ON_ERROR);
-        self::assertIsArray($editBody);
-        self::assertSame('Согласны ли вы получать наши новости и акции?', $editBody['text'] ?? null);
-        self::assertArrayNotHasKey('attachments', $editBody);
+        self::assertSame('DELETE', $http->requests[0]->getMethod());
 
         $sendBody = json_decode((string) $http->requests[1]->getBody(), true, 512, JSON_THROW_ON_ERROR);
         self::assertIsArray($sendBody);
@@ -231,8 +229,10 @@ class HandleConsentCallbackTest extends TestCase
         self::assertSame(BroadcastConsentAction::OptOut, $consent->action);
     }
 
-    public function testConfirmationStillSentWhenMessageTextUnavailable(): void
+    public function testMessageNotDeletedWhenMessageIdUnavailable(): void
     {
+        $segment = BroadcastSegment::query()->create(['name' => 'Новости', 'chat_ids' => []]);
+
         [$http, , $listener] = $this->makeListener([
             $this->messageResponse(),
             $this->successResponse(),
@@ -241,9 +241,10 @@ class HandleConsentCallbackTest extends TestCase
         $update = $this->makeUpdate([
             'update_type' => 'message_callback',
             'chat_id' => 111,
+            'message_id' => '',
             'callback' => [
                 'callback_id' => 'cb-1',
-                'payload' => 'consent:opt_in',
+                'payload' => 'consent:'.$segment->id.':opt_in',
             ],
         ]);
 
@@ -252,10 +253,38 @@ class HandleConsentCallbackTest extends TestCase
         self::assertSame(2, $http->callCount);
         self::assertSame('POST', $http->requests[0]->getMethod());
         self::assertStringContainsString('/messages', (string) $http->requests[0]->getUri());
-        $sendBody = json_decode((string) $http->requests[0]->getBody(), true, 512, JSON_THROW_ON_ERROR);
-        self::assertIsArray($sendBody);
-        self::assertSame('Вы согласились на получение рассылок.', $sendBody['text'] ?? null);
+        self::assertStringNotContainsString('message_id=', (string) $http->requests[0]->getUri());
         self::assertStringContainsString('/answers', (string) $http->requests[1]->getUri());
+        self::assertSame([111], $segment->refresh()->chat_ids);
+    }
+
+    public function testFallbackIsSkippedWhenDeleteFailsAndMessageTextUnavailable(): void
+    {
+        $segment = BroadcastSegment::query()->create(['name' => 'Новости', 'chat_ids' => []]);
+
+        [$http, , $listener] = $this->makeListener([
+            $this->errorResponse(), // deleteMessage fails
+            $this->messageResponse(), // sendMessage
+            $this->successResponse(), // sendAnswer
+        ]);
+
+        $update = $this->makeUpdate([
+            'update_type' => 'message_callback',
+            'chat_id' => 111,
+            'message_id' => 'mid-poll',
+            'callback' => [
+                'callback_id' => 'cb-1',
+                'payload' => 'consent:'.$segment->id.':opt_in',
+            ],
+        ]);
+
+        $listener->handle(new MaxUpdateReceived($update));
+
+        self::assertSame(3, $http->callCount);
+        self::assertSame('DELETE', $http->requests[0]->getMethod());
+        self::assertSame('POST', $http->requests[1]->getMethod());
+        self::assertStringContainsString('/answers', (string) $http->requests[2]->getUri());
+        self::assertSame([111], $segment->refresh()->chat_ids);
     }
 
     public function testIgnoresCallbackUpdateWithoutCallbackPayload(): void
@@ -275,13 +304,15 @@ class HandleConsentCallbackTest extends TestCase
 
     public function testIgnoresCallbackWithoutChatId(): void
     {
+        $segment = BroadcastSegment::query()->create(['name' => 'Новости', 'chat_ids' => []]);
+
         [$http, , $listener] = $this->makeListener();
 
         $update = $this->makeUpdate([
             'update_type' => 'message_callback',
             'callback' => [
                 'callback_id' => 'cb-1',
-                'payload' => 'consent:opt_in',
+                'payload' => 'consent:'.$segment->id.':opt_in',
             ],
         ]);
 
@@ -291,33 +322,49 @@ class HandleConsentCallbackTest extends TestCase
         self::assertSame(0, BroadcastConsent::query()->count());
     }
 
-    public function testConsentIsRecordedEvenWhenButtonsRemovalFails(): void
+    public function testConsentIsRecordedEvenWhenDeleteMessageFailsAndFallsBackToEdit(): void
     {
+        $segment = BroadcastSegment::query()->create(['name' => 'Новости', 'chat_ids' => []]);
+
         [$http, , $listener] = $this->makeListener([
-            $this->errorResponse(),
-            $this->messageResponse(),
-            $this->successResponse(),
+            $this->errorResponse(), // deleteMessage fails
+            $this->successResponse(), // editMessage fallback
+            $this->messageResponse(), // sendMessage
+            $this->successResponse(), // sendAnswer
         ]);
 
-        $listener->handle(new MaxUpdateReceived($this->callbackUpdate('consent:opt_in', 111, 222)));
+        $listener->handle(new MaxUpdateReceived($this->callbackUpdate('consent:'.$segment->id.':opt_in', 111, 222)));
 
-        self::assertSame(3, $http->callCount);
+        self::assertSame(4, $http->callCount);
+
+        self::assertSame('DELETE', $http->requests[0]->getMethod());
+        self::assertSame('PUT', $http->requests[1]->getMethod());
+        $editUri = (string) $http->requests[1]->getUri();
+        self::assertStringContainsString('/messages', $editUri);
+        self::assertStringContainsString('message_id=mid-poll', $editUri);
+        $editBody = json_decode((string) $http->requests[1]->getBody(), true, 512, JSON_THROW_ON_ERROR);
+        self::assertIsArray($editBody);
+        self::assertSame('Согласны ли вы получать наши новости и акции?', $editBody['text'] ?? null);
+        self::assertArrayNotHasKey('attachments', $editBody);
 
         $consent = BroadcastConsent::query()->where('chat_id', 111)->first();
         self::assertNotNull($consent);
         self::assertSame(BroadcastConsentAction::OptIn, $consent->action);
-        self::assertStringContainsString('/messages', (string) $http->requests[1]->getUri());
+        self::assertSame([111], $segment->refresh()->chat_ids);
+        self::assertStringContainsString('/messages', (string) $http->requests[2]->getUri());
     }
 
     public function testConsentIsRecordedEvenWhenConfirmationFails(): void
     {
+        $segment = BroadcastSegment::query()->create(['name' => 'Новости', 'chat_ids' => []]);
+
         [$http, , $listener] = $this->makeListener([
             $this->successResponse(),
             $this->errorResponse(),
             $this->successResponse(),
         ]);
 
-        $listener->handle(new MaxUpdateReceived($this->callbackUpdate('consent:opt_in', 111, 222)));
+        $listener->handle(new MaxUpdateReceived($this->callbackUpdate('consent:'.$segment->id.':opt_in', 111, 222)));
 
         self::assertSame(3, $http->callCount);
 
@@ -328,18 +375,62 @@ class HandleConsentCallbackTest extends TestCase
 
     public function testConsentIsRecordedEvenWhenCallbackAnswerFails(): void
     {
+        $segment = BroadcastSegment::query()->create(['name' => 'Новости', 'chat_ids' => []]);
+
         [$http, , $listener] = $this->makeListener([
             $this->successResponse(),
             $this->messageResponse(),
             $this->errorResponse(),
         ]);
 
-        $listener->handle(new MaxUpdateReceived($this->callbackUpdate('consent:opt_in', 111, 222)));
+        $listener->handle(new MaxUpdateReceived($this->callbackUpdate('consent:'.$segment->id.':opt_in', 111, 222)));
 
         self::assertSame(3, $http->callCount);
 
         $consent = BroadcastConsent::query()->where('chat_id', 111)->first();
         self::assertNotNull($consent);
         self::assertSame(BroadcastConsentAction::OptIn, $consent->action);
+    }
+
+    public function testLegacyPayloadIsIgnored(): void
+    {
+        [$http, , $listener] = $this->makeListener();
+
+        $listener->handle(new MaxUpdateReceived($this->callbackUpdate('consent:opt_in', 111, 222)));
+
+        self::assertSame(0, $http->callCount);
+        self::assertSame(0, BroadcastConsent::query()->count());
+    }
+
+    public function testSegmentPayloadRecordsConsentIntoThatSegment(): void
+    {
+        $vip = BroadcastSegment::query()->create(['name' => 'VIP', 'chat_ids' => []]);
+        $news = BroadcastSegment::query()->create(['name' => 'Новости', 'chat_ids' => []]);
+
+        [$http, , $listener] = $this->makeListener([
+            $this->successResponse(),
+            $this->messageResponse(),
+            $this->successResponse(),
+        ]);
+
+        $listener->handle(new MaxUpdateReceived($this->callbackUpdate('consent:'.$vip->id.':opt_in', 111, 222)));
+
+        self::assertSame(3, $http->callCount);
+        self::assertSame([111], $vip->refresh()->chat_ids);
+        self::assertSame([], $news->refresh()->chat_ids);
+        self::assertSame(
+            $vip->id,
+            BroadcastConsent::query()->where('chat_id', 111)->sole()->segment_id,
+        );
+    }
+
+    public function testSegmentPayloadWithUnknownSegmentIsIgnored(): void
+    {
+        [$http, , $listener] = $this->makeListener();
+
+        $listener->handle(new MaxUpdateReceived($this->callbackUpdate('consent:999:opt_in', 111, 222)));
+
+        self::assertSame(0, $http->callCount);
+        self::assertSame(0, BroadcastConsent::query()->count());
     }
 }

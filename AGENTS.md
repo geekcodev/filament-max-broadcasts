@@ -84,7 +84,7 @@ Constraint `geekcodev/laravel-max-client: ^1.2.0` и `geekcodev/max-php-client: 
 - **Соответствие формулировки запроса и ответа** (не додумывай за пользователя):
 
   | Запрос пользователя | Что делаешь                                                                                |
-      |--------------------|--------------------------------------------------------------------------------------------|
+        |--------------------|--------------------------------------------------------------------------------------------|
   | «краткий текст коммита», «напиши коммит-сообщение», «subject» | Одна строка — head, без body, по Conventional Commits, по всем изменениям ветки. Коммит не создаёшь |
   | «текст коммита» без уточнений | То же самое: краткий head без body                                                               |
   | «полный текст коммита», «с body» | Head + body с переносами по 100 символов                                                        |
@@ -99,7 +99,10 @@ Constraint `geekcodev/laravel-max-client: ^1.2.0` и `geekcodev/max-php-client: 
   `git add .`/`git add -A`. **Перед релизом рабочее дерево должно быть чистым**, кроме ожидаемых файлов релиза.
 - **Миграции, уже выполненные у хоста, не править на месте.** Файл миграции уехал в установку под своим именем и записан
   в таблицу `migrations`; правка тела молча ничего не делает у существующих установок. Новая колонка или таблица —
-  только новая ad-hoc миграция. Gotcha 2.
+  только новая ad-hoc миграция. Исключение — одновременная правка create-миграции и новая ad-hoc миграция, когда
+  исправленная схема нужна и новым, и существующим установкам: create-миграция защищена `Schema::hasTable()`, а
+  существующие установки приводит ad-hoc миграция. Так сделано для `max_broadcast_consents.segment_id` в v1.1.2 (gotcha
+  2 и 28). Gotcha 2.
 - **Переименование выполненной create-миграции допустимо только вместе с `Schema::hasTable()` в `up()`.** После смены
   имени миграция числится невыполненной при уже существующей таблице, и без guard повторный `Schema::create` падает
   «таблица уже есть» — то есть ломается ровно у тех установок, ради которых переименование и делалось. Именно так
@@ -169,7 +172,11 @@ database/migrations/                  миграции max_broadcasts / max_broa
                                       + 0000_03_000007_make_broadcast_recipient_ids_signed
                                       (знаковые chat_id/user_id под отрицательные id групп и каналов; Schema
                                       API, поэтому работает на MySQL и PostgreSQL, no-op на SQLite; загрузка из
-                                      пакета). Полоса 0000_03 задана графом FK: max_broadcasts.created_by ссылается
+                                      пакета)
+                                      + 0000_03_000008_make_broadcast_consent_segment_id_nullable
+                                      (segment_id согласий nullable: удаление сегмента сохраняет историю ответов;
+                                      на новых установках то же делает create-миграция, gotcha 28).
+                                      Полоса 0000_03 задана графом FK: max_broadcasts.created_by ссылается
                                       на users из 0000_01, поэтому пакет идёт после системных миграций
                                       приложения. Переименование выполненных миграций — только с guard, §2)
 lang/{ru,en}/broadcasts.php           подписи UI ресурса «Рассылки»
@@ -197,27 +204,31 @@ src/
     SendConsentRequestsJob.php         очередь запроса согласия: лок, пере-резолв кандидатов, батчи
   Listeners/HandleConsentCallback.php  приём callback-ответов согласия (MaxUpdateReceived) + ответ sendAnswer
   Services/
-    BroadcastService.php               create(): резолв получателей (chatIds → сегменты → все активные) + dispatch
+    BroadcastService.php               create(): резолв получателей (chatIds → сегменты, только диалоги) + dispatch
     BroadcastTextSanitizer.php         санитизация HTML под whitelist тегов MAX + toMaxHtml()
     BroadcastRecipientsResolver.php    источник MaxChat (активные чаты, дедуп по chat_id) — расширяемый
     BroadcastSender.php                отправка в MAX: текст/медиавложения/кнопки-диплинки (uploadMedia + sendMessage)
     ConsentService.php                 единая точка согласий: optIn/optOut/answeredChatIds, сегмент «Новости и акции»
-    ConsentRequestService.php          кандидаты на запрос согласия (активные без ответа) + dispatch джобы
+    ConsentRequestService.php          кандидаты запроса согласия по сегменту (активные диалоги без ответа) + dispatch джобы
+    BroadcastSegmentRecipients.php     получатели сегмента: только активные диалоги, счётчики для селекта и предупреждения
   Support/
     BroadcastTypes.php                 реестр типов из конфига (instance/contains/options/label/badgeColor)
     BroadcastTypeDefaults.php          трейт дефолтного поведения типов (lang-подпись, кнопки из per_type)
-    ChatSelectionField.php             мультивыбор чатов с серверным поиском (Select: лимит 50, дедуп, фолбэк label)
+    ChatSelectionField.php             мультивыбор чатов: серверный поиск (лимит 50), «Выбрать всех», dialogsOnly для сегментов
+    BroadcastSegmentOptions.php        варианты селекта сегментов: только с получателями, бейдж числа получателей
+    DialogsOnlyRule.php                серверная проверка: в сегмент только диалоги
     ChatRegistry.php                   единственный адаптер к реестру чатов: форма 1.1.x против 1.2 (связи, user_id,
                                       title, displayName)
   Resources/
     BroadcastResource.php              Filament-ресурс «Рассылки»
-    BroadcastSegmentResource.php       Filament-ресурс «Сегменты» (список/создание/редактирование)
+    BroadcastSegmentResource.php       Filament-ресурс «Сегменты» (список/создание/просмотр/редактирование)
     BroadcastConsentResource.php       Filament-ресурс «Согласия» (журнал ответов, read-only)
-    Schemas/{BroadcastForm,BroadcastSegmentForm}.php
+    Schemas/{BroadcastForm,BroadcastSegmentForm,BroadcastSegmentInfolist}.php
     Tables/{BroadcastsTable,BroadcastSegmentsTable,BroadcastConsentsTable}.php
     Pages/{CreateBroadcast,ListBroadcasts,ViewBroadcast,ListBroadcastSegments,CreateBroadcastSegment,EditBroadcastSegment,
-           ListBroadcastConsents}.php
-    RelationManagers/BroadcastRecipientsRelationManager.php
+           ViewBroadcastSegment,ListBroadcastConsents}.php
+    RelationManagers/{BroadcastRecipientsRelationManager,BroadcastConsentsRelationManager}.php
+    Actions/RequestConsentAction.php   действие «Запросить согласие» для страницы сегмента и таблицы сегментов
 tests/                                PHPUnit + Orchestra Testbench
   Fixtures/                            AdminPanelProvider, TestUser, OffersType, OffersSegment, миграция users, Gate
                                       broadcasts.*; Chats/RawChat/RawUser — чаты и пользователи реестра, одинаковые
@@ -312,11 +323,12 @@ Filament-компонентах. `composer.lock`, `.phpunit.cache/`, `.phpstan-c
   (по умолчанию пакетный `GeekCo\LaravelMaxClient\Models\MaxChat`), статус — `MaxChatStatus::Active`. Дедуп обязателен и
   на форме реестра 1.1.x, где строка на пару (пользователь, чат), и на 1.2.0, где строка на чат.
 - **Получатели**: `BroadcastService::create(..., ?array $chatIds = null, array $segments = [])`. Приоритет резолва:
-  явные `chatIds` → объединение `chat_ids` выбранных сегментов → все активные чаты. Снимок фактических получателей
-  хранится в `recipient_chat_ids` рассылки (nullable, `[]` = всем активным) — источник истины для повтора; выбранные
-  сегменты привязываются через pivot `max_broadcast_segment` (история выбора). В UI — мультивыбор сегментов
-  (`Select multiple`) + ручная корректировка поиском активных чатов (серверно, только найденные); «Повторить» передаёт и
-  сегменты, и снимок.
+  явные `chatIds` (любые типы чатов) → объединение `chat_ids` выбранных сегментов, только чаты типа `dialog` → иначе
+  `InvalidArgumentException`: рассылка без сегментов и без получателей не создаётся (пустой выбор больше не означает
+  «всем активным»). Снимок фактических получателей хранится в `recipient_chat_ids` рассылки (nullable) — источник истины
+  для повтора; выбранные сегменты привязываются через pivot `max_broadcast_segment` (история выбора). В UI — мультивыбор
+  сегментов (`Select multiple`) + ручная корректировка поиском активных чатов (серверно, только найденные); «Повторить»
+  передаёт и сегменты, и снимок.
 - **Создание рассылки**: `BroadcastService::create(text, scheduledAt, creator, attachments, type, chatIds, segments)` —
   резолвит получателей, сохраняет `Broadcast` + вложения (`attachments`, `list<array{upload_type, path}>`) +
   `BroadcastRecipient`s, `segments()->sync()`, `dispatch()` через `SendBroadcastJob` (с `delay()` при будущем
@@ -346,21 +358,28 @@ Filament-компонентах. `composer.lock`, `.phpunit.cache/`, `.phpstan-c
   badgeColor()`; неизвестный токен fail-fast при создании и мягкий fallback (сырое значение/серый) в отображении. Лимиты
   глобальные и к типам не относятся: размер текста — 4000 (лимит API MAX), размер медиавложений —
   `image.max_kb`.
-- **Согласие (opt-in)**: действие «Запросить согласие» на `ListBroadcasts` (под `permissions.create`) →
-  `ConsentRequestService::sendRequest()`: кандидаты — активные чаты без записи в `max_broadcast_consents` для сегмента
-  «Новости и акции» (`consent.segment_name`), `SendConsentRequestsJob` (лок, батчи) шлёт фиксированное сообщение с
-  callback-кнопками «Согласен»/«Не согласен» (`ConsentPoll`, payload `consent:<action>`). Ответы ловит
+- **Согласие (opt-in)**: действие `Resources\Actions\RequestConsentAction` «Запросить согласие» на странице сегмента и в
+  строке таблицы сегментов (под `permissions.create`; на списке рассылок его нет) → `ConsentRequestService::sendRequest(
+  BroadcastSegment)`: кандидаты — активные диалоги реестра без записи в `max_broadcast_consents` для этого сегмента,
+  `SendConsentRequestsJob($segmentId)` (лок `consent:send-request:{segmentId}`, батчи) шлёт сообщение «Вы согласны
+  получать рассылку «название»?» (`consent.request_message`, `:segment`) с кнопками «Да»/«Нет»
+  (`ConsentPoll::buttonRowsFor($segmentId)`, payload `consent:<segmentId>:<action>`; `BroadcastSender::send()` принимает
+  кнопки явным параметром). Payload без сегмента (`consent:<action>`) не принимается: регулярное выражение требует
+  сегмент, malformed и чужие callback'и игнорируются. Ответы ловит
   `HandleConsentCallback` (событие `MaxUpdateReceived`, регистрация в `FilamentMaxBroadcastsServiceProvider::boot()`),
-  через `ConsentService` делает upsert факта и добавляет/убирает `chat_id` в сегменте согласий, после чего убирает
-  кнопки из исходного сообщения (`editMessage`), отвечает на нажатие `ApiClient::sendAnswer` и подтверждает выбор в чат.
-  Одна актуальная запись на пару `(segment_id, chat_id)`; `answeredChatIds()` — дедуп ответивших (их повторно не
+  через `ConsentService::optIn/optOut(chatId, userId, segmentId)` делает upsert факта и добавляет/убирает `chat_id` в
+  сегменте из payload (неизвестный сегмент — callback игнорируется), после чего удаляет исходное сообщение с опросом
+  (`ApiClient::deleteMessage`; при ошибке — fallback `editMessage` без кнопок), отвечает на нажатие
+  `ApiClient::sendAnswer` и подтверждает выбор в чат. Одна актуальная запись на
+  пару `(segment_id, chat_id)`; `answeredChatIds(segmentId)` — дедуп ответивших в этом сегменте (их повторно не
   опрашивают, проигнорировавших — да). Журнал ответов — `BroadcastConsentResource` (read-only: `canCreate()`/
-  `canEdit()` → `false`).
+  `canEdit()` → `false`) с фильтрами по сегменту (включая `none` — записи удалённых сегментов) и действию. При удалении
+  сегмента согласия остаются с `segment_id = null` (FK `nullOnDelete`, колонка nullable — gotcha 28).
 - **Таблицы**: `max_broadcasts`, `max_broadcast_recipients`, `max_broadcast_attachments`, `max_broadcast_segments`,
   `max_broadcast_consents` и pivot `max_broadcast_segment` (структура — наследие `broadcasts`/`broadcast_recipients` из
   хоста, но с префиксом `max_` во избежание конфликтов; вложения — отдельная таблица по несколько на рассылку). FK
   `created_by` → таблица `users` (модель — `config('filament-max-broadcasts.user_model')`). Миграции грузятся из пакета
-  автоматически, семь файлов; правило «не править на месте, переименовывать только с guard» — в §2.
+  автоматически, восемь файлов; правило «не править на месте, переименовывать только с guard» — в §2.
 - **Переопределение моделей**: `broadcast_model`/`recipient_model`/`segment_model`/`consent.consent_model`/
   `chats_model`/`user_model` — конфигурируемы. В тестах для атрибутов вендорной `MaxChat` используется
   `getAttribute()` + локальный `@var`: у модели `laravel-max-client` нет `@property`, PHPStan level max иначе ругается.
@@ -446,7 +465,8 @@ Xdebug включён и отчёт покрытия строится без д�
 - Сводка эндпоинтов, DTO и enums: `max-php-client/docs/api-reference.md` в соседнем репозитории — не дублируй её здесь,
   читай.
 - Отправка рассылки: `ApiClient::sendMessage` (`NewMessageBody`, `TextFormat::Html`), `uploadMedia` для медиавложений,
-  `InlineKeyboardButton`/`ButtonType::Link` для кнопок-диплинок, `sendAnswer` для ответа на callback, `editMessage` для
+  `InlineKeyboardButton`/`ButtonType::Link` для кнопок-диплинок, `sendAnswer` для ответа на callback, `deleteMessage` для
+  удаления сообщения с опросом и `editMessage` для
   правки сообщения с кнопками. Сигнатуры брать из пакета `geekcodev/max-php-client`, не выдумывать.
 - Реестр чатов/пользователей — из `geekcodev/laravel-max-client` (`MaxChat`, `MaxUser`, `MaxChatStatus`).
 - Факты, влияющие на плагин: аутентификация — заголовок `Authorization: <token>` **без** `Bearer`; все timestamp API —
@@ -544,6 +564,35 @@ Xdebug включён и отчёт покрытия строится без д�
     таблица с внешним ключом на несуществующую таблицу создаётся молча, а на PostgreSQL и MySQL DDL падает сразу, то
     есть чистая установка невозможна. Поэтому порядок проверяется по исходникам: `tests/Feature/MigrationOrderTest.php`
     в пакете проверяет контракт собственной полосы, сквозная проверка по миграциям всех владельцев живёт в приложении.
+24. **В Filament v5 header-действия страниц авторизуются явно, а `ListRecords` не создаёт кнопку «Создать» сам.**
+    `Page::getDefaultActionAuthorizationResponse()` для `CreateAction` идёт через
+    `Resource::getCreateAuthorizationResponse()` → `get_authorization_response('create', $model)`, то есть через
+    политику модели; политик в пакете нет, поэтому действие по умолчанию разрешено всем, кто вправе открыть страницу.
+    Переопределённый `Resource::canCreate()` в этом пути не участвует: он остаётся серверной проверкой
+    `CreateRecord::authorizeAccess()`. Поэтому каждому header-действию нужен явный `->authorize($permission)` — иначе
+    кнопку видит пользователь с одним `broadcasts.view`, а клик даёт 403. По той же причине кнопка «Создать» на
+    `ListBroadcastSegments` объявлена в `getHeaderActions()` вручную: базовый `ListRecords` в v5 header-действий не
+    добавляет.
+25. **Payload кнопок согласия несёт сегмент.** Опросы отправляются только с payload
+    `consent:<segmentId>:<action>`. `HandleConsentCallback` принимает только такой формат, payload без сегмента
+    игнорируется. После ответа бот удаляет сообщение с опросом (`deleteMessage`); при ошибке удаления кнопки убираются
+    правкой через `editMessage`. Новый формат укладывается в лимит payload кнопки MAX (8 КБ по спецификации).
+26. **Пустой выбор рассылки — ошибка, а не «всем чатам».** `BroadcastService::create()` бросает
+    `InvalidArgumentException`, если нет ни `chatIds`, ни `segments`. Форма требует хотя бы одно поле через
+    `requiredWithout`. Повтор рассылки без снимка получателей показывает уведомление и не создаёт новую рассылку.
+27. **Селект сегментов и сегменты с диалогами.** В селект сегментов рассылки попадают только сегменты с активными
+    диалогами (`Support\BroadcastSegmentOptions`, число в бейдже —
+    `Services\BroadcastSegmentRecipients::dialogCounts()`). Сегменту нельзя добавить не-диалог: проверка
+    `Support\DialogsOnlyRule` на сервере и `dialogsOnly: true` в
+    `ChatSelectionField` (варианты, поиск, подписи, «Выбрать всех»). Старые группы в сегментах не удаляются, но не
+    получают рассылку по сегменту и помечены предупреждением.
+
+28. **`nullOnDelete()` требует nullable-колонку.** `foreignId('segment_id')->constrained(...)->nullOnDelete()` без
+    `nullable()` не даёт удалить родителя: SQLite и MySQL отклоняют запись NULL (`NOT NULL constraint failed`), а на
+    MySQL такая таблица может не создаться на чистой установке вовсе. Согласия должны переживать удаление сегмента,
+    поэтому `max_broadcast_consents.segment_id` объявлен nullable в create-миграции `0000_03_000005` (новые установки)
+    и приведён к nullable миграцией `0000_03_000008` (существующие). Общий журнал показывает такие записи вариантом «Без
+    сегмента». При добавлении FK с `nullOnDelete()` всегда проверяй `nullable()` и пиши тест на удаление родителя.
 
 ## 11. Чек-лист перед завершением задачи
 

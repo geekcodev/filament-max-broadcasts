@@ -8,11 +8,13 @@ use GeekCo\FilamentMaxBroadcasts\Enums\BroadcastConsentAction;
 use GeekCo\FilamentMaxBroadcasts\Models\BroadcastConsent;
 use GeekCo\FilamentMaxBroadcasts\Models\BroadcastSegment;
 use GeekCo\FilamentMaxBroadcasts\Resources\BroadcastConsentResource;
+use GeekCo\FilamentMaxBroadcasts\Resources\Pages\ListBroadcastConsents;
 use GeekCo\FilamentMaxBroadcasts\Tests\Fixtures\TestUser;
 use GeekCo\FilamentMaxBroadcasts\Tests\Fixtures\Chats;
 use GeekCo\FilamentMaxBroadcasts\Tests\TestCase;
 use GeekCo\LaravelMaxClient\Enums\MaxChatStatus;
 use GeekCo\MaxPhpClient\Enum\ChatType;
+use Livewire\Livewire;
 
 class BroadcastConsentResourceTest extends TestCase
 {
@@ -103,5 +105,58 @@ class BroadcastConsentResourceTest extends TestCase
         $this->get(BroadcastConsentResource::getUrl('index'))
             ->assertSuccessful()
             ->assertSee(__('filament-max-broadcasts::broadcasts.chat_types.dialog'));
+    }
+    public function testIndexPageFiltersConsentsBySegment(): void
+    {
+        $first = $this->createSegment();
+        $second = BroadcastSegment::query()->create([
+            'name' => 'Другой сегмент',
+            'chat_ids' => [33],
+        ]);
+
+        $inFirst = $this->consent($first->id, 11);
+        $inSecond = $this->consent($second->id, 22);
+
+        $this->actingAs($this->adminUser());
+
+        Livewire::test(ListBroadcastConsents::class)
+            ->filterTable('segment_id', $first->id)
+            ->assertCanSeeTableRecords([$inFirst])
+            ->assertCanNotSeeTableRecords([$inSecond]);
+    }
+
+    public function testIndexPageFiltersConsentsOfDeletedSegments(): void
+    {
+        $segment = $this->createSegment();
+        $other = BroadcastSegment::query()->create([
+            'name' => 'Другой сегмент',
+            'chat_ids' => [33],
+        ]);
+
+        $inSegment = $this->consent($segment->id, 11);
+        $inOther = $this->consent($other->id, 22);
+
+        $segment->delete();
+
+        /** @var BroadcastConsent $orphan */
+        $orphan = BroadcastConsent::query()->where('chat_id', 11)->firstOrFail();
+
+        self::assertNull($orphan->segment_id);
+
+        $this->actingAs($this->adminUser());
+
+        Livewire::test(ListBroadcastConsents::class)
+            ->filterTable('segment_id', 'none')
+            ->assertCanSeeTableRecords([$orphan])
+            ->assertCanNotSeeTableRecords([$inOther]);
+    }
+
+    private function consent(?int $segmentId, int $chatId): BroadcastConsent
+    {
+        return BroadcastConsent::query()->create([
+            'segment_id' => $segmentId,
+            'chat_id' => $chatId,
+            'action' => BroadcastConsentAction::OptIn,
+        ]);
     }
 }

@@ -16,7 +16,7 @@ return new class () extends Migration {
         Schema::create('max_broadcast_consents', function (Blueprint $table): void {
             $table->comment('Согласия получателей на рассылку (opt-in/opt-out через callback-кнопки)');
             $table->id();
-            $table->foreignId('segment_id')->comment('Сегмент согласий (max_broadcast_segments)')
+            $table->foreignId('segment_id')->nullable()->comment('Сегмент согласий (max_broadcast_segments)')
                 ->constrained('max_broadcast_segments')->nullOnDelete();
             $table->bigInteger('chat_id')->comment('Chat_id получателя (MAX)');
             $table->bigInteger('user_id')->nullable()->comment('User_id получателя (MAX)');

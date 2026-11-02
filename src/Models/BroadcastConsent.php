@@ -12,7 +12,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
  * @property int $id
- * @property int $segment_id
+ * @property int|null $segment_id
  * @property int $chat_id
  * @property int|null $user_id
  * @property BroadcastConsentAction $action

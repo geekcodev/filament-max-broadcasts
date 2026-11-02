@@ -10,11 +10,14 @@ use GeekCo\FilamentMaxBroadcasts\Models\BroadcastSegment;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Единая точка изменения сегмента согласий и записи фактов opt-in/opt-out.
+ * Единая точка изменения согласий и записи фактов opt-in/opt-out.
  *
- * Сегмент согласий — именованный сегмент (config consent.segment_name), в который
- * слушатель HandleConsentCallback складывает chat_id согласившихся. Таблица
- * max_broadcast_consents хранит последний факт (action) по паре segment+chat.
+ * Согласие привязано к сегменту, из которого был запрошен: слушатель
+ * HandleConsentCallback складывает chat_id согласившихся в сегмент из payload кнопки
+ * (payload без сегмента больше не принимается). Необязательный segmentId сохранён для
+ * обратной совместимости: без него метод работает со стартовым сегментом
+ * «Новости и акции» (config consent.segment_name). Таблица max_broadcast_consents
+ * хранит последний факт (action) по паре segment+chat.
  */
 class ConsentService
 {
@@ -29,18 +32,33 @@ class ConsentService
         $this->consentModel = $resolved;
     }
 
-    public function optIn(int $chatId, ?int $userId = null): void
+    public function optIn(int $chatId, ?int $userId = null, ?int $segmentId = null): void
     {
-        $this->record($chatId, $userId, BroadcastConsentAction::OptIn);
+        $this->record($chatId, $userId, BroadcastConsentAction::OptIn, $segmentId);
     }
 
-    public function optOut(int $chatId, ?int $userId = null): void
+    public function optOut(int $chatId, ?int $userId = null, ?int $segmentId = null): void
     {
-        $this->record($chatId, $userId, BroadcastConsentAction::OptOut);
+        $this->record($chatId, $userId, BroadcastConsentAction::OptOut, $segmentId);
     }
 
     /**
-     * Резолвим (создаём при отсутствии) сегмент «Новости и акции» по имени из конфига.
+     * Сегмент по id; null — стартовый сегмент «Новости и акции» (создаётся при отсутствии).
+     */
+    public function findSegment(?int $segmentId): ?BroadcastSegment
+    {
+        if ($segmentId === null) {
+            return $this->resolveConsentSegment();
+        }
+
+        /** @var class-string<BroadcastSegment> $modelClass */
+        $modelClass = config('filament-max-broadcasts.segment_model', BroadcastSegment::class);
+
+        return $modelClass::query()->find($segmentId);
+    }
+
+    /**
+     * Резолвим (создаём при отсутствии) стартовый сегмент «Новости и акции» по имени из конфига.
      */
     public function resolveConsentSegment(): BroadcastSegment
     {
@@ -56,7 +74,7 @@ class ConsentService
     }
 
     /**
-     * @return list<int> chat_id согласившихся
+     * @return list<int> chat_id согласившихся в стартовом сегменте
      */
     public function consentChatIds(): array
     {
@@ -64,18 +82,21 @@ class ConsentService
     }
 
     /**
-     * chat_id всех, кто ответил на запрос (opt_in или opt_out) именно для
-     * сегмента «Новости и акции» (consent.segment_name).
+     * chat_id всех, кто ответил на запрос (opt_in или opt_out) в сегменте.
      *
-     * Источник дедупа для повторной рассылки запроса: ответившие больше
-     * запрос не получают, а проигнорировавшие (без записи) — получают снова.
-     * Записи, привязанные к другим сегментам, в дедупе не участвуют.
+     * Источник дедупа для повторного запроса: ответившие в этом сегменте запрос больше
+     * не получают, проигнорировавшие — получают. Записи других сегментов не участвуют.
      *
      * @return list<int>
      */
-    public function answeredChatIds(): array
+    public function answeredChatIds(?int $segmentId = null): array
     {
-        $segment = $this->resolveConsentSegment();
+        $segment = $this->findSegment($segmentId);
+
+        if ($segment === null) {
+            return [];
+        }
+
         $modelClass = $this->consentModel;
 
         return array_values($modelClass::query()
@@ -85,9 +106,14 @@ class ConsentService
             ->all());
     }
 
-    private function record(int $chatId, ?int $userId, BroadcastConsentAction $action): void
+    private function record(int $chatId, ?int $userId, BroadcastConsentAction $action, ?int $segmentId): void
     {
-        $segment = $this->resolveConsentSegment();
+        $segment = $this->findSegment($segmentId);
+
+        if ($segment === null) {
+            return;
+        }
+
         $modelClass = $this->consentModel;
 
         DB::transaction(function () use ($modelClass, $segment, $chatId, $userId, $action): void {

@@ -5,88 +5,114 @@ declare(strict_types=1);
 namespace GeekCo\FilamentMaxBroadcasts\Tests\Unit\Services;
 
 use GeekCo\FilamentMaxBroadcasts\Jobs\SendConsentRequestsJob;
+use GeekCo\FilamentMaxBroadcasts\Models\BroadcastSegment;
 use GeekCo\FilamentMaxBroadcasts\Services\BroadcastRecipientsResolver;
 use GeekCo\FilamentMaxBroadcasts\Services\ConsentRequestService;
 use GeekCo\FilamentMaxBroadcasts\Services\ConsentService;
-use GeekCo\FilamentMaxBroadcasts\Tests\TestCase;
 use GeekCo\FilamentMaxBroadcasts\Tests\Fixtures\Chats;
+use GeekCo\FilamentMaxBroadcasts\Tests\TestCase;
 use GeekCo\LaravelMaxClient\Enums\MaxChatStatus;
-use GeekCo\LaravelMaxClient\Models\MaxChat;
+use GeekCo\MaxPhpClient\Enum\ChatType;
 use Illuminate\Support\Facades\Queue;
 
 class ConsentRequestServiceTest extends TestCase
 {
     private ConsentRequestService $service;
 
+    private ConsentService $consent;
+
     protected function setUp(): void
     {
         parent::setUp();
 
+        $this->consent = new ConsentService();
         $this->service = new ConsentRequestService(
             new BroadcastRecipientsResolver(),
-            new ConsentService(),
+            $this->consent,
         );
     }
 
-    private function activeChat(int $chatId, ?int $userId = null): MaxChat
+    private function dialog(int $chatId, int $userId): void
     {
-        return Chats::create($chatId, $userId ?? $chatId, [
+        Chats::create($chatId, $userId, [
             'status' => MaxChatStatus::Active,
+            'chat_type' => ChatType::Dialog,
         ]);
     }
 
-    public function testEligibleChatsExcludeAnsweredChats(): void
+    private function segment(string $name = 'VIP'): BroadcastSegment
     {
-        $this->activeChat(11, 1);
-        $this->activeChat(22, 2);
-        $this->activeChat(33, 3);
+        return BroadcastSegment::query()->create([
+            'name' => $name,
+            'chat_ids' => [],
+        ]);
+    }
 
-        $service = new ConsentService();
-        $service->optIn(22, 2);
-        $service->optOut(33, 3);
+    public function testEligibleChatsAreActiveDialogsWithoutAnswerForSegment(): void
+    {
+        $this->dialog(11, 1);
+        $this->dialog(22, 2);
+        $segment = $this->segment();
 
-        $eligible = $this->service->eligibleChats();
+        $this->consent->optIn(22, 2, $segment->id);
 
-        self::assertCount(1, $eligible);
-        self::assertSame(11, $eligible->first()?->getAttribute('chat_id'));
+        self::assertSame([11], $this->service->eligibleChatIds($segment));
+    }
+
+    public function testAnswersToOtherSegmentsDoNotExcludeChats(): void
+    {
+        $this->dialog(11, 1);
+        $this->dialog(22, 2);
+        $vip = $this->segment('VIP');
+        $news = $this->segment('Новости');
+
+        $this->consent->optIn(22, 2, $vip->id);
+
+        self::assertEqualsCanonicalizing([11, 22], $this->service->eligibleChatIds($news));
+    }
+
+    public function testGroupsAndChannelsAreNotEligible(): void
+    {
+        Chats::create(33, 33, ['status' => MaxChatStatus::Active, 'chat_type' => ChatType::Chat]);
+        Chats::create(44, 44, ['status' => MaxChatStatus::Active, 'chat_type' => ChatType::Channel]);
+
+        self::assertSame([], $this->service->eligibleChatIds($this->segment()));
     }
 
     public function testEligibleChatIdsIsEmptyWhenEveryoneAnswered(): void
     {
-        $this->activeChat(11, 1);
+        $this->dialog(11, 1);
+        $segment = $this->segment();
 
-        (new ConsentService())->optIn(11, 1);
+        $this->consent->optIn(11, 1, $segment->id);
 
-        self::assertSame([], $this->service->eligibleChatIds());
+        self::assertSame([], $this->service->eligibleChatIds($segment));
     }
 
-    public function testEligibleChatIdsReturnsWaitingChats(): void
+    public function testSendRequestDispatchesJobWithSegmentId(): void
     {
-        $this->activeChat(11, 1);
-        $this->activeChat(22, 2);
+        Queue::fake();
+        $this->dialog(11, 1);
+        $this->dialog(22, 2);
+        $segment = $this->segment();
 
-        (new ConsentService())->optOut(11, 1);
+        self::assertSame(2, $this->service->sendRequest($segment));
 
-        self::assertSame([22], $this->service->eligibleChatIds());
-    }
-
-    public function testSendRequestDispatchesJobAndReturnsCount(): void
-    {
-        $this->activeChat(11, 1);
-        $this->activeChat(22, 2);
-
-        self::assertSame(2, $this->service->sendRequest());
-
-        Queue::assertPushed(SendConsentRequestsJob::class);
+        Queue::assertPushed(
+            SendConsentRequestsJob::class,
+            static fn (SendConsentRequestsJob $job): bool => $job->segmentId === $segment->id,
+        );
     }
 
     public function testSendRequestDoesNotDispatchWhenNoEligible(): void
     {
-        $this->activeChat(11, 1);
+        Queue::fake();
+        $this->dialog(11, 1);
+        $segment = $this->segment();
 
-        (new ConsentService())->optIn(11, 1);
+        $this->consent->optIn(11, 1, $segment->id);
 
-        self::assertSame(0, $this->service->sendRequest());
+        self::assertSame(0, $this->service->sendRequest($segment));
 
         Queue::assertNotPushed(SendConsentRequestsJob::class);
     }

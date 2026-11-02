@@ -5,16 +5,19 @@ declare(strict_types=1);
 namespace GeekCo\FilamentMaxBroadcasts\Services;
 
 use GeekCo\FilamentMaxBroadcasts\Jobs\SendConsentRequestsJob;
+use GeekCo\FilamentMaxBroadcasts\Models\BroadcastSegment;
+use GeekCo\FilamentMaxBroadcasts\Support\ChatRegistry;
 use GeekCo\LaravelMaxClient\Models\MaxChat;
+use GeekCo\MaxPhpClient\Enum\ChatType;
 use Illuminate\Database\Eloquent\Collection;
 
 /**
- * Отправка запроса согласия через кнопку на списке рассылок.
+ * Запрос согласия по кнопке «Запросить согласие» в сегменте.
  *
- * Получатели запроса — активные чаты без записи согласия (ни opt_in, ни opt_out).
- * Факт получения не фиксируется: проигнорировавшие запрос получат его снова при
- * следующем запуске, а ответившие — никогда. Сама отправка — в очереди
- * (SendConsentRequestsJob), сервис считает кандидатов и ставит задачу.
+ * Получатели запроса — активные диалоги без записи согласия именно в этом сегменте
+ * (группы и каналы не опрашиваются: согласие личное). Факт получения не фиксируется:
+ * проигнорировавшие запрос получат его снова, ответившие — никогда. Сама отправка —
+ * в очереди (SendConsentRequestsJob), сервис считает кандидатов и ставит задачу.
  */
 class ConsentRequestService
 {
@@ -24,15 +27,19 @@ class ConsentRequestService
     ) {
     }
 
+    public function findSegment(int $segmentId): ?BroadcastSegment
+    {
+        return $this->consentService->findSegment($segmentId);
+    }
+
     /**
-     * Активные чаты без записей согласия.
+     * Активные диалоги без записи согласия для сегмента.
      *
      * @return Collection<int, MaxChat>
      */
-    public function eligibleChats(): Collection
+    public function eligibleChats(BroadcastSegment $segment): Collection
     {
-        $answered = $this->consentService->answeredChatIds();
-        $answered = array_fill_keys($answered, true);
+        $answered = array_fill_keys($this->consentService->answeredChatIds($segment->id), true);
 
         return $this->resolver
             ->resolve()
@@ -41,7 +48,8 @@ class ConsentRequestService
                     /** @var int $chatId */
                     $chatId = $chat->getAttribute('chat_id');
 
-                    return ! isset($answered[$chatId]);
+                    return ChatRegistry::chatType($chat) === ChatType::Dialog->value
+                        && ! isset($answered[$chatId]);
                 },
             )
             ->values();
@@ -50,9 +58,9 @@ class ConsentRequestService
     /**
      * @return list<int>
      */
-    public function eligibleChatIds(): array
+    public function eligibleChatIds(BroadcastSegment $segment): array
     {
-        return array_values($this->eligibleChats()
+        return array_values($this->eligibleChats($segment)
             ->map(
                 static function (MaxChat $chat): int {
                     /** @var int $chatId */
@@ -65,16 +73,16 @@ class ConsentRequestService
     }
 
     /**
-     * Ставит в очередь рассылку запроса согласия всем ещё не ответившим.
+     * Ставит в очередь запрос согласия для сегмента всем ещё не ответившим диалогам.
      *
      * @return int число получателей (0 — некого опрашивать)
      */
-    public function sendRequest(): int
+    public function sendRequest(BroadcastSegment $segment): int
     {
-        $count = count($this->eligibleChatIds());
+        $count = count($this->eligibleChatIds($segment));
 
         if ($count > 0) {
-            SendConsentRequestsJob::dispatch();
+            SendConsentRequestsJob::dispatch($segment->id);
         }
 
         return $count;
