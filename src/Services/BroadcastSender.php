@@ -7,9 +7,16 @@ namespace GeekCo\FilamentMaxBroadcasts\Services;
 use GeekCo\FilamentMaxBroadcasts\Contracts\BroadcastTypeContract;
 use GeekCo\MaxPhpClient\ApiClient;
 use GeekCo\MaxPhpClient\Dto\AttachmentRequest;
+use GeekCo\MaxPhpClient\Dto\AttachmentRequest\AudioAttachmentRequest;
+use GeekCo\MaxPhpClient\Dto\AttachmentRequest\FileAttachmentRequest;
+use GeekCo\MaxPhpClient\Dto\AttachmentRequest\InlineKeyboardAttachmentRequest;
+use GeekCo\MaxPhpClient\Dto\AttachmentRequest\PhotoAttachmentRequest;
+use GeekCo\MaxPhpClient\Dto\AttachmentRequest\VideoAttachmentRequest;
+use GeekCo\MaxPhpClient\Dto\InlineKeyboardAttachmentRequestPayload;
 use GeekCo\MaxPhpClient\Dto\NewMessageBody;
+use GeekCo\MaxPhpClient\Dto\PhotoAttachmentRequestPayload;
 use GeekCo\MaxPhpClient\Dto\Recipient;
-use GeekCo\MaxPhpClient\Enum\AttachmentType;
+use GeekCo\MaxPhpClient\Dto\UploadedInfo;
 use GeekCo\MaxPhpClient\Enum\TextFormat;
 use GeekCo\MaxPhpClient\Enum\UploadType;
 use Illuminate\Support\Facades\Log;
@@ -30,7 +37,7 @@ class BroadcastSender
      * Отправляет рассылку одному получателю.
      *
      * @param  list<array{upload_type: string, path: string}>  $media
-     * @param  list<\GeekCo\MaxPhpClient\Dto\InlineKeyboardButtonRow>|null  $buttonRows  кнопки вместо кнопок типа (запрос согласия по сегменту)
+     * @param  list<list<\GeekCo\MaxPhpClient\Dto\Button>>|null  $buttonRows  кнопки вместо кнопок типа (запрос согласия по сегменту)
      */
     public function send(
         Recipient $recipient,
@@ -54,9 +61,8 @@ class BroadcastSender
         $rows = $buttonRows ?? $type->buttonRows();
 
         if ($rows !== []) {
-            $attachments[] = AttachmentRequest::create(
-                type: AttachmentType::InlineKeyboard,
-                rows: $rows,
+            $attachments[] = new InlineKeyboardAttachmentRequest(
+                new InlineKeyboardAttachmentRequestPayload($rows),
             );
         }
 
@@ -104,20 +110,25 @@ class BroadcastSender
             'url' => $result->url,
         ]);
 
-        return AttachmentRequest::create(
-            type: $this->attachmentType($type),
-            token: $result->token,
-            url: $result->token === null ? $result->url : null,
-        );
-    }
+        if ($type === UploadType::Image) {
+            return new PhotoAttachmentRequest(new PhotoAttachmentRequestPayload(
+                token: $result->token,
+                url: $result->token === null ? $result->url : null,
+            ));
+        }
 
-    private function attachmentType(UploadType $type): AttachmentType
-    {
+        $token = $result->token;
+
+        if ($token === null) {
+            throw new \RuntimeException('MAX upload did not return an attachment token.');
+        }
+
+        $payload = new UploadedInfo($token);
+
         return match ($type) {
-            UploadType::Image => AttachmentType::Image,
-            UploadType::Video => AttachmentType::Video,
-            UploadType::Audio => AttachmentType::Audio,
-            UploadType::File => AttachmentType::File,
+            UploadType::Video => new VideoAttachmentRequest($payload),
+            UploadType::Audio => new AudioAttachmentRequest($payload),
+            UploadType::File => new FileAttachmentRequest($payload),
         };
     }
 }

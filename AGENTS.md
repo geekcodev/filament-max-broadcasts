@@ -34,10 +34,11 @@
 пакету за раз: два аргумента `composer show` не принимает), релизные теги — `git tag --sort=-v:refname` здесь и в
 соседних `../laravel-max-client`, `../max-php-client`.
 
-Constraint `geekcodev/laravel-max-client: ^1.2.0` и `geekcodev/max-php-client: ^1.1.8` (v1.1.0, 2026-10-02) закрыл
-долговое решение пункта 1 плана: поддерживаемой считается форма 1.2, а код проверен на обеих формах реестра. Плагин
-читает из `max_chats` поля `status`, `chat_type`, `last_activity_at` и фильтрует `status = active`, но **форма реестра
-различается** между версиями ядра, и от неё зависят ключ строки, связи чат-пользователь и колонка `title`:
+Целевые constraints — `geekcodev/laravel-max-client: ^2.0` и `geekcodev/max-php-client: ^2.0` (типизированные события
+MAX). Пока теги `v2.0.0` не выпущены, ветка `new` ставит обе зависимости как `dev-new` из Packagist; path-repositories
+не используются. Поддерживаемой считается форма реестра 1.2, код проверен на обеих формах. Плагин читает из `max_chats`
+поля `status`, `chat_type`, `last_activity_at` и фильтрует `status = active`, но **форма реестра различается** между
+версиями ядра, и от неё зависят ключ строки, связи чат-пользователь и колонка `title`:
 
 - **1.1.x** — строка на пару (пользователь, чат): есть колонка `user_id` и `unique(user_id, chat_id)`, поэтому один чат
   присутствует в реестре несколькими строками (дедуп по `chat_id` в `BroadcastRecipientsResolver` обязателен), а
@@ -84,7 +85,7 @@ Constraint `geekcodev/laravel-max-client: ^1.2.0` и `geekcodev/max-php-client: 
 - **Соответствие формулировки запроса и ответа** (не додумывай за пользователя):
 
   | Запрос пользователя | Что делаешь                                                                                |
-        |--------------------|--------------------------------------------------------------------------------------------|
+          |--------------------|--------------------------------------------------------------------------------------------|
   | «краткий текст коммита», «напиши коммит-сообщение», «subject» | Одна строка — head, без body, по Conventional Commits, по всем изменениям ветки. Коммит не создаёшь |
   | «текст коммита» без уточнений | То же самое: краткий head без body                                                               |
   | «полный текст коммита», «с body» | Head + body с переносами по 100 символов                                                        |
@@ -370,9 +371,9 @@ Filament-компонентах. `composer.lock`, `.phpunit.cache/`, `.phpstan-c
   через `ConsentService::optIn/optOut(chatId, userId, segmentId)` делает upsert факта и добавляет/убирает `chat_id` в
   сегменте из payload (неизвестный сегмент — callback игнорируется), после чего удаляет исходное сообщение с опросом
   (`ApiClient::deleteMessage`; при ошибке — fallback `editMessage` без кнопок), отвечает на нажатие
-  `ApiClient::sendAnswer` и подтверждает выбор в чат. Одна актуальная запись на
-  пару `(segment_id, chat_id)`; `answeredChatIds(segmentId)` — дедуп ответивших в этом сегменте (их повторно не
-  опрашивают, проигнорировавших — да). Журнал ответов — `BroadcastConsentResource` (read-only: `canCreate()`/
+  `ApiClient::sendAnswer` и подтверждает выбор в чат. Одна актуальная запись на пару `(segment_id, chat_id)`;
+  `answeredChatIds(segmentId)` — дедуп ответивших в этом сегменте (их повторно не опрашивают, проигнорировавших — да).
+  Журнал ответов — `BroadcastConsentResource` (read-only: `canCreate()`/
   `canEdit()` → `false`) с фильтрами по сегменту (включая `none` — записи удалённых сегментов) и действию. При удалении
   сегмента согласия остаются с `segment_id = null` (FK `nullOnDelete`, колонка nullable — gotcha 28).
 - **Таблицы**: `max_broadcasts`, `max_broadcast_recipients`, `max_broadcast_attachments`, `max_broadcast_segments`,
@@ -465,9 +466,9 @@ Xdebug включён и отчёт покрытия строится без д�
 - Сводка эндпоинтов, DTO и enums: `max-php-client/docs/api-reference.md` в соседнем репозитории — не дублируй её здесь,
   читай.
 - Отправка рассылки: `ApiClient::sendMessage` (`NewMessageBody`, `TextFormat::Html`), `uploadMedia` для медиавложений,
-  `InlineKeyboardButton`/`ButtonType::Link` для кнопок-диплинок, `sendAnswer` для ответа на callback, `deleteMessage` для
-  удаления сообщения с опросом и `editMessage` для
-  правки сообщения с кнопками. Сигнатуры брать из пакета `geekcodev/max-php-client`, не выдумывать.
+  `InlineKeyboardButton`/`ButtonType::Link` для кнопок-диплинок, `sendAnswer` для ответа на callback, `deleteMessage`
+  для удаления сообщения с опросом и `editMessage` для правки сообщения с кнопками. Сигнатуры брать из пакета
+  `geekcodev/max-php-client`, не выдумывать.
 - Реестр чатов/пользователей — из `geekcodev/laravel-max-client` (`MaxChat`, `MaxUser`, `MaxChatStatus`).
 - Факты, влияющие на плагин: аутентификация — заголовок `Authorization: <token>` **без** `Bearer`; все timestamp API —
   Unix в **миллисекундах**; `chat_id`/`user_id` — int64 и могут быть **отрицательными** (группы и каналы); `message_id`/

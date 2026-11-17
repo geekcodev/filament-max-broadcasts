@@ -92,6 +92,11 @@ class HandleConsentCallbackTest extends TestCase
             'callback' => [
                 'callback_id' => 'cb-1',
                 'payload' => $payload,
+                'user' => $userId !== null ? [
+                    'user_id' => $userId,
+                    'first_name' => 'Test',
+                    'is_bot' => false,
+                ] : null,
                 'message' => [
                     'recipient' => ['chat_id' => $chatId],
                     'timestamp' => 1700000000,
@@ -105,14 +110,6 @@ class HandleConsentCallbackTest extends TestCase
             ],
         ];
 
-        if ($userId !== null) {
-            $data['user'] = [
-                'user_id' => $userId,
-                'first_name' => 'Test',
-                'is_bot' => false,
-            ];
-        }
-
         return $this->makeUpdate($data);
     }
 
@@ -122,7 +119,12 @@ class HandleConsentCallbackTest extends TestCase
 
         $update = $this->makeUpdate([
             'update_type' => 'message_created',
-            'chat_id' => 111,
+            'message' => [
+                'sender' => ['user_id' => 1, 'first_name' => 'Test', 'is_bot' => false],
+                'recipient' => ['chat_id' => 111],
+                'timestamp' => 1700000000,
+                'body' => ['mid' => 'mid-1', 'seq' => 1, 'text' => 'Привет'],
+            ],
         ]);
 
         $listener->handle(new MaxUpdateReceived($update));
@@ -240,11 +242,14 @@ class HandleConsentCallbackTest extends TestCase
 
         $update = $this->makeUpdate([
             'update_type' => 'message_callback',
-            'chat_id' => 111,
-            'message_id' => '',
             'callback' => [
                 'callback_id' => 'cb-1',
                 'payload' => 'consent:'.$segment->id.':opt_in',
+                'message' => [
+                    'recipient' => ['chat_id' => 111],
+                    'timestamp' => 1700000000,
+                    'body' => ['mid' => '', 'seq' => 1],
+                ],
             ],
         ]);
 
@@ -270,11 +275,14 @@ class HandleConsentCallbackTest extends TestCase
 
         $update = $this->makeUpdate([
             'update_type' => 'message_callback',
-            'chat_id' => 111,
-            'message_id' => 'mid-poll',
             'callback' => [
                 'callback_id' => 'cb-1',
                 'payload' => 'consent:'.$segment->id.':opt_in',
+                'message' => [
+                    'recipient' => ['chat_id' => 111],
+                    'timestamp' => 1700000000,
+                    'body' => ['mid' => 'mid-poll', 'seq' => 1, 'text' => ''],
+                ],
             ],
         ]);
 
@@ -293,7 +301,7 @@ class HandleConsentCallbackTest extends TestCase
 
         $update = $this->makeUpdate([
             'update_type' => 'message_callback',
-            'chat_id' => 111,
+            'callback' => ['callback_id' => 'cb-1'],
         ]);
 
         $listener->handle(new MaxUpdateReceived($update));

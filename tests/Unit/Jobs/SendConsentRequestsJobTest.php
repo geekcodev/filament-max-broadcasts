@@ -93,11 +93,11 @@ class SendConsentRequestsJobTest extends TestCase
             [],
             ConsentPoll::ConsentPoll,
             Mockery::on(function (array $rows) use ($segment): bool {
-                /** @var \GeekCo\MaxPhpClient\Dto\InlineKeyboardButtonRow $row */
-                $row = $rows[0];
+                /** @var list<\GeekCo\MaxPhpClient\Dto\Button\CallbackButton> $buttons */
+                $buttons = $rows[0];
 
-                return $row->buttons[0]->payload === 'consent:'.$segment->id.':opt_in'
-                    && $row->buttons[1]->payload === 'consent:'.$segment->id.':opt_out';
+                return $buttons[0]->payload === 'consent:'.$segment->id.':opt_in'
+                    && $buttons[1]->payload === 'consent:'.$segment->id.':opt_out';
             }),
         );
 

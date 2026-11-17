@@ -6,9 +6,7 @@ namespace GeekCo\FilamentMaxBroadcasts\Enums\BroadcastTypes;
 
 use GeekCo\FilamentMaxBroadcasts\Contracts\BroadcastTypeContract;
 use GeekCo\FilamentMaxBroadcasts\Support\BroadcastTypeDefaults;
-use GeekCo\MaxPhpClient\Dto\InlineKeyboardButton;
-use GeekCo\MaxPhpClient\Dto\InlineKeyboardButtonRow;
-use GeekCo\MaxPhpClient\Enum\ButtonType;
+use GeekCo\MaxPhpClient\Dto\Button\CallbackButton;
 
 /**
  * Кнопки запроса согласия для SendConsentRequestsJob.
@@ -36,7 +34,7 @@ enum ConsentPoll: string implements BroadcastTypeContract
     /**
      * Контракт требует метод, но у опроса согласия нет кнопок без сегмента.
      *
-     * @return list<InlineKeyboardButtonRow>
+     * @return list<list<\GeekCo\MaxPhpClient\Dto\Button>>
      */
     public function buttonRows(): array
     {
@@ -44,7 +42,7 @@ enum ConsentPoll: string implements BroadcastTypeContract
     }
 
     /**
-     * @return list<InlineKeyboardButtonRow>
+     * @return list<list<\GeekCo\MaxPhpClient\Dto\Button>>
      */
     public static function buttonRowsFor(int $segmentId): array
     {
@@ -59,23 +57,19 @@ enum ConsentPoll: string implements BroadcastTypeContract
     }
 
     /**
-     * @return list<InlineKeyboardButtonRow>
+     * @return list<list<\GeekCo\MaxPhpClient\Dto\Button>>
      */
     private static function callbackRows(int $segmentId): array
     {
-        return [
-            new InlineKeyboardButtonRow([
-                new InlineKeyboardButton(
-                    type: ButtonType::Callback,
-                    text: config()->string('filament-max-broadcasts.consent.button_text_opt_in', 'Да'),
-                    payload: self::payload($segmentId, 'opt_in'),
-                ),
-                new InlineKeyboardButton(
-                    type: ButtonType::Callback,
-                    text: config()->string('filament-max-broadcasts.consent.button_text_opt_out', 'Нет'),
-                    payload: self::payload($segmentId, 'opt_out'),
-                ),
-            ]),
-        ];
+        return [[
+            new CallbackButton(
+                config()->string('filament-max-broadcasts.consent.button_text_opt_in', 'Да'),
+                self::payload($segmentId, 'opt_in'),
+            ),
+            new CallbackButton(
+                config()->string('filament-max-broadcasts.consent.button_text_opt_out', 'Нет'),
+                self::payload($segmentId, 'opt_out'),
+            ),
+        ]];
     }
 }

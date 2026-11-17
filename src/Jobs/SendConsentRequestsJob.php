@@ -130,7 +130,7 @@ class SendConsentRequestsJob implements ShouldQueue
     }
 
     /**
-     * @param  list<\GeekCo\MaxPhpClient\Dto\InlineKeyboardButtonRow>  $buttonRows
+     * @param  list<list<\GeekCo\MaxPhpClient\Dto\Button>>  $buttonRows
      */
     private function sendTo(
         BroadcastSender $sender,

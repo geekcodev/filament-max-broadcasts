@@ -30,7 +30,8 @@ Filament-плагин: **массовые рассылки** пользоват�
 
 - PHP ^8.4, Laravel ^13.0
 - Filament ^5.0 (панель v5), Livewire ^4.1
-- `geekcodev/laravel-max-client` ^1.2.0 + `geekcodev/max-php-client` ^1.1.8
+- `geekcodev/laravel-max-client` ^2.0 + `geekcodev/max-php-client` ^2.0 (предрелизная ветка `new` ставит обе зависимости
+  как `dev-new` из Packagist)
 - Опубликованные миграции laravel-max-client (`max_users`, `max_chats`, `max_chat_users`)
 - Работающая очередь (для фактической отправки) и **общее для всех воркеров хранилище кэша**
   (redis/database/memcached): джобы берут `Cache::lock()`; на `file`/`array` рассылку отправят два процесса параллельно,
@@ -241,6 +242,13 @@ Xdebug: локально в dev-образе он включён, в CI — че
 Полные release notes по версиям — в каталоге `.agents/release/` репозитория (в архив пакета он не попадает), здесь
 только значимое для пользователя.
 
+- **v2.0.0** — синхронизация с ядром и адаптером v2.0.0 (BC): события типизированы, `HandleConsentCallback`
+  принимает `MessageCallbackUpdate`, `chat_id` берётся из `message.recipient`, пользователь — из `callback.user` или
+  отправителя сообщения; `answerCallback` вместо `sendAnswer`. Кнопки собираются `Keyboard`/`CallbackButton`/
+  `LinkButton`, а `BroadcastTypeContract::buttonRows()` возвращает `list<list<Button>>` (кастомные типы требуют правки).
+  Вложения —
+  `Photo/Video/Audio/File/InlineKeyboardAttachmentRequest`, `UploadEndpoint` → token. Текст сообщения при удалении
+  опроса редактируется в `TextFormat::Html` (поля `format` в теле ответа больше нет).
 - **v1.1.2** — согласие на рассылку привязано к сегменту: кнопка «Запросить согласие» на странице сегмента и в таблице
   сегментов, вопрос «Вы согласны получать рассылку «название»?» с кнопками «Да» / «Нет», ответы попадают в сегмент
   запроса, а сообщение с вопросом после нажатия удаляется из чата. Payload кнопки без сегмента больше не принимается. В

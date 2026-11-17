@@ -6,7 +6,7 @@ namespace GeekCo\FilamentMaxBroadcasts\Tests\Unit\Enums;
 
 use GeekCo\FilamentMaxBroadcasts\Enums\BroadcastTypes\ConsentPoll;
 use GeekCo\FilamentMaxBroadcasts\Tests\TestCase;
-use GeekCo\MaxPhpClient\Enum\ButtonType;
+use GeekCo\MaxPhpClient\Dto\Button\CallbackButton;
 
 class ConsentPollTypeTest extends TestCase
 {
@@ -59,12 +59,12 @@ class ConsentPollTypeTest extends TestCase
         $rows = ConsentPoll::buttonRowsFor(7);
 
         self::assertCount(1, $rows);
-        self::assertSame('consent:7:opt_in', $rows[0]->buttons[0]->payload);
-        self::assertSame('consent:7:opt_out', $rows[0]->buttons[1]->payload);
-        self::assertSame('Да', $rows[0]->buttons[0]->text);
-        self::assertSame('Нет', $rows[0]->buttons[1]->text);
-        self::assertSame(ButtonType::Callback, $rows[0]->buttons[0]->type);
-        self::assertNull($rows[0]->buttons[0]->url);
+        self::assertInstanceOf(CallbackButton::class, $rows[0][0]);
+        self::assertInstanceOf(CallbackButton::class, $rows[0][1]);
+        self::assertSame('consent:7:opt_in', $rows[0][0]->payload);
+        self::assertSame('consent:7:opt_out', $rows[0][1]->payload);
+        self::assertSame('Да', $rows[0][0]->text);
+        self::assertSame('Нет', $rows[0][1]->text);
     }
 
     public function testButtonRowsDependOnConfigTexts(): void
@@ -72,7 +72,7 @@ class ConsentPollTypeTest extends TestCase
         config()->set('filament-max-broadcasts.consent.button_text_opt_in', 'Yes');
         config()->set('filament-max-broadcasts.consent.button_text_opt_out', 'No');
 
-        $buttons = ConsentPoll::buttonRowsFor(1)[0]->buttons;
+        $buttons = ConsentPoll::buttonRowsFor(1)[0];
 
         self::assertSame('Yes', $buttons[0]->text);
         self::assertSame('No', $buttons[1]->text);
