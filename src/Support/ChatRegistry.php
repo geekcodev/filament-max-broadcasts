@@ -12,16 +12,12 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\Relation;
 
 /**
- * Адаптер к реестру чатов `laravel-max-client`: единственное место, которое знает
- * про обе формы реестра (gotcha 1).
+ * Адаптер к реестру чатов `laravel-max-client` формы 1.2.
  *
- * 1.1.x — строка на пару (пользователь, чат): у чата колонка `user_id` и связь
- * `maxUser`, ключ суррогатный `id`. 1.2 — строка на чат: `chat_id` это
- * первичный ключ, связи чат-пользователь живут в `max_chat_users` (`chatUsers`,
- * `maxUsers`), а у чата появляется `title` из `getChat()`.
- *
- * Форма определяется по установленной версии ядра, поэтому один и тот же код
- * работает и на 1.1.x, и на 1.2, а дёшево проверяется тестами на обеих формах.
+ * Строка реестра — один чат (`chat_id` — первичный ключ), участники чата лежат в
+ * `max_chat_users` (`chatUsers`, `maxUsers`), у группы и канала есть `title`.
+ * Всё общение пакета с реестром идёт через этот класс: имена связей и способ
+ * получить пользователя чата не должны расползаться по коду.
  */
 final class ChatRegistry
 {
@@ -37,8 +33,6 @@ final class ChatRegistry
     }
 
     /**
-     * Связи чат-пользователь, доступные на установленной форме реестра.
-     *
      * @return list<string>
      */
     public static function userRelations(): array
@@ -48,7 +42,7 @@ final class ChatRegistry
 
     public static function userRelation(): string
     {
-        return method_exists(self::chatInstance(), 'maxUser') ? 'maxUser' : 'chatUsers.maxUser';
+        return 'chatUsers.maxUser';
     }
 
     /**
@@ -80,8 +74,8 @@ final class ChatRegistry
     }
 
     /**
-     * Имя чата для интерфейса: `title` группы или канала (1.2), иначе имя
-     * собеседника диалога, иначе идентификатор чата.
+     * Имя чата для интерфейса: `title` группы или канала, иначе имя собеседника
+     * диалога, иначе идентификатор чата.
      */
     public static function displayName(Model $chat): string
     {
@@ -118,18 +112,10 @@ final class ChatRegistry
     }
 
     /**
-     * Пользователь, зафиксированный в реестре для чата.
-     *
-     * @return Model|null пользователь MAX (в 1.1 — `maxUser`, в 1.2 — первый известный участник чата)
+     * Пользователь, зафиксированный в реестре для чата (первый известный участник).
      */
     public static function user(Model $chat): ?Model
     {
-        if (method_exists(self::chatInstance(), 'maxUser')) {
-            $user = $chat->getRelationValue('maxUser');
-
-            return $user instanceof Model ? $user : null;
-        }
-
         $chatUsers = $chat->getRelationValue('chatUsers');
 
         if ($chatUsers instanceof Collection) {
@@ -139,38 +125,17 @@ final class ChatRegistry
             return $user instanceof Model ? $user : null;
         }
 
-        $userId = self::userId($chat);
+        $user = self::knownUsers($chat)?->first();
 
-        if ($userId === null) {
-            return null;
-        }
-
-        return self::firstKnownUser($chat);
+        return $user instanceof Model ? $user : null;
     }
 
     /**
-     * Идентификатор пользователя чата из реестра.
-     *
-     * На форме 1.2 колонки `user_id` у чата нет, поэтому берётся первый известный
-     * участник (`max_chat_users`). Значение нужно только для снимка получателя:
-     * отправка идёт по `chat_id`.
+     * Идентификатор пользователя чата из реестра (первый известный участник).
+     * Значение нужно только для снимка получателя: отправка идёт по `chat_id`.
      */
     public static function userId(Model $chat): ?int
     {
-        $userId = $chat->getAttribute('user_id');
-
-        if (is_int($userId)) {
-            return $userId;
-        }
-
-        if (is_string($userId) && is_numeric($userId)) {
-            return (int) $userId;
-        }
-
-        if (! method_exists(self::chatInstance(), 'chatUsers')) {
-            return null;
-        }
-
         $chatUsers = $chat->getRelationValue('chatUsers');
 
         if ($chatUsers instanceof Collection) {
@@ -180,24 +145,6 @@ final class ChatRegistry
             return is_int($userId) ? $userId : null;
         }
 
-        return self::firstKnownUserId($chat);
-    }
-
-    /**
-     * Первый пользователь чата по связи `maxUsers` (только форма 1.2).
-     *
-     * Имя связи вызывается динамически: на форме 1.1 такого метода у модели нет,
-     * и PHPStan не должен ругаться на отсутствующий метод (gotcha 16).
-     */
-    private static function firstKnownUser(Model $chat): ?Model
-    {
-        $user = self::knownUsers($chat)?->first();
-
-        return $user instanceof Model ? $user : null;
-    }
-
-    private static function firstKnownUserId(Model $chat): ?int
-    {
         $user = self::knownUsers($chat)?->first();
         $userId = $user instanceof Model ? $user->getAttribute('user_id') : null;
 
@@ -209,33 +156,14 @@ final class ChatRegistry
      */
     private static function knownUsers(Model $chat): ?Collection
     {
-        $method = 'maxUsers';
-
-        if (! method_exists($chat, $method)) {
+        if (! method_exists($chat, 'maxUsers')) {
             return null;
         }
 
         /** @var Relation<Model, Model, int> $relation */
-        $relation = $chat->{$method}();
+        $relation = $chat->maxUsers();
 
         return $relation->get();
-    }
-
-    /**
-     * Пустой экземпляр модели чата для проверки формы реестра.
-     *
-     * Возвращается как `Model`, а не как `MaxChat`: у ядра две несовместимые формы
-     * реестра, поэтому проверять наличие связей нужно динамически, иначе статический
-     * анализ считает проверку избыточной на одной из форм (gotcha 1).
-     */
-    private static function chatInstance(): Model
-    {
-        $class = self::model();
-
-        /** @var Model $chat */
-        $chat = new $class();
-
-        return $chat;
     }
 
     public static function chatType(Model $chat): string

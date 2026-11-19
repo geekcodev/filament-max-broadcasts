@@ -40,22 +40,11 @@ Filament-плагин: **массовые рассылки** пользоват�
 - Для предпросмотра вложений в админке на диске `local` — опция `'serve' => true` в `config/filesystems.php` (значение
   по умолчанию в Laravel 11+). Без неё файлы всё равно уходят в MAX, но превью и ссылки в панели не отображаются.
 
-Плагин читает из реестра `max_chats` поля `status`, `chat_type` и `last_activity_at`. Формы реестра у версий ядра
-разные: 1.1.x хранит строку на пару пользователь-чат с `unique(user_id, chat_id)` и колонкой `user_id`, а 1.2 — строку
-на чат с `chat_id` первичным ключом, связями чат-пользователь в `max_chat_users` и колонкой `title`. Код плагина
-работает с обеими формами через адаптер `Support\ChatRegistry`, но поддерживается форма 1.2, поэтому минимум —
-`laravel-max-client` ^1.2.0.
-
-Апгрейд с 1.1.x выполняйте строго в таком порядке:
-
-```bash
-composer require geekcodev/laravel-max-client:^1.2.0
-php artisan migrate      # новая форма реестра: max_chats по chat_id + таблица max_chat_users
-php artisan max:upgrade  # перенос данных реестра из старой формы в новую
-```
-
-Пропуск `max:upgrade` оставит `max_chat_users` пустой, и плагин не найдёт ни одного получателя. Проверить фактически
-установленную версию можно командой `composer show geekcodev/laravel-max-client`.
+Плагин читает из реестра `max_chats` поля `status`, `chat_type` и `last_activity_at`. Поддерживается форма реестра 1.2
+(`laravel-max-client` v2): строка на чат с `chat_id` первичным ключом, участники в `max_chat_users`, `title` у групп и
+каналов. Поддержка формы 1.1.x удалена в v2.0.0: при обновлении с плагина 1.x сначала обновите `laravel-max-client` до
+v2 и выполните его миграции — порядок переноса реестра описан в документации клиента. Проверить установленную версию
+можно командой `composer show geekcodev/laravel-max-client`.
 
 Колонки `max_broadcast_recipients.chat_id` и `user_id` в плагине знаковые: идентификаторы групп и каналов MAX
 отрицательные, и без этого MySQL отвергал бы рассылку в канал, а на PostgreSQL тип `bigint` уже знаковый, и миграция
@@ -192,8 +181,9 @@ php artisan vendor:publish --tag=filament-max-broadcasts-migrations # мигра
   `Broadcast` + `BroadcastRecipient`, привязка сегментов, `dispatch()` очереди (с `delay()` при будущем расписании);
 - `Services\BroadcastRecipientsResolver` — единственный источник списка получателей (активные чаты `max_chats`, дедуп по
   `chat_id`, сортировка по `last_activity_at`); точечная выборка по `chat_id` идёт через `resolveForChatIds()`;
-- `Models\BroadcastSegment` + `Services\ConsentService` — именованные сегменты чатов; сегмент «Новости и акции» —
-  источник согласившихся на рассылку (факты `opt_in`/`opt_out` в `max_broadcast_consents`);
+- `Models\BroadcastSegment` + `Services\ConsentService` — именованные сегменты чатов; согласия хранятся по сегментам
+  (факты `opt_in`/`opt_out` в `max_broadcast_consents`), стартовый сегмент «Новости и акции» создаётся миграцией как
+  обычный пустой сегмент;
 - `Services\ConsentRequestService` + `Jobs\SendConsentRequestsJob` — действие «Запросить согласие»: кандидаты — активные
   чаты без ответа, рассылка фиксированного сообщения с callback-кнопками;
 - `Listeners\HandleConsentCallback` — приём ответов (событие `MaxUpdateReceived`), запись факта и ответ

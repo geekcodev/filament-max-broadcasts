@@ -29,25 +29,18 @@ class ConsentService
         $this->consentModel = $resolved;
     }
 
-    public function optIn(int $chatId, ?int $userId = null, ?int $segmentId = null): void
+    public function optIn(int $chatId, ?int $userId, int $segmentId): void
     {
         $this->record($chatId, $userId, BroadcastConsentAction::OptIn, $segmentId);
     }
 
-    public function optOut(int $chatId, ?int $userId = null, ?int $segmentId = null): void
+    public function optOut(int $chatId, ?int $userId, int $segmentId): void
     {
         $this->record($chatId, $userId, BroadcastConsentAction::OptOut, $segmentId);
     }
 
-    /**
-     * Сегмент по id; null — стартовый сегмент «Новости и акции» (создаётся при отсутствии).
-     */
-    public function findSegment(?int $segmentId): ?BroadcastSegment
+    public function findSegment(int $segmentId): ?BroadcastSegment
     {
-        if ($segmentId === null) {
-            return $this->resolveConsentSegment();
-        }
-
         /** @var class-string<BroadcastSegment> $modelClass */
         $modelClass = config('filament-max-broadcasts.segment_model', BroadcastSegment::class);
 
@@ -55,35 +48,11 @@ class ConsentService
     }
 
     /**
-     * Резолвим (создаём при отсутствии) стартовый сегмент «Новости и акции» по имени из конфига.
-     */
-    public function resolveConsentSegment(): BroadcastSegment
-    {
-        /** @var class-string<BroadcastSegment> $modelClass */
-        $modelClass = config('filament-max-broadcasts.segment_model', BroadcastSegment::class);
-
-        $name = config()->string('filament-max-broadcasts.consent.segment_name', 'Новости и акции');
-
-        return $modelClass::query()->firstOrCreate(
-            ['name' => $name],
-            ['chat_ids' => []],
-        );
-    }
-
-    /**
-     * @return list<int> chat_id согласившихся в стартовом сегменте
-     */
-    public function consentChatIds(): array
-    {
-        return $this->optedInChatIds();
-    }
-
-    /**
      * chat_id всех, кто согласился (opt_in) в сегменте. Источник аудитории рассылки.
      *
      * @return list<int>
      */
-    public function optedInChatIds(?int $segmentId = null): array
+    public function optedInChatIds(int $segmentId): array
     {
         $segment = $this->findSegment($segmentId);
 
@@ -144,7 +113,7 @@ class ConsentService
      *
      * @return list<int>
      */
-    public function answeredChatIds(?int $segmentId = null): array
+    public function answeredChatIds(int $segmentId): array
     {
         $segment = $this->findSegment($segmentId);
 
@@ -161,7 +130,7 @@ class ConsentService
             ->all());
     }
 
-    private function record(int $chatId, ?int $userId, BroadcastConsentAction $action, ?int $segmentId): void
+    private function record(int $chatId, ?int $userId, BroadcastConsentAction $action, int $segmentId): void
     {
         $segment = $this->findSegment($segmentId);
 

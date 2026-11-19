@@ -249,14 +249,6 @@ class ChatSelectionField
         );
     }
 
-    public static function idBadge(int $id): string
-    {
-        return sprintf(
-            '<span class="fi-badge fi-size-sm" style="background-color:var(--gray-50);color:var(--gray-700)">ID: %d</span>',
-            $id,
-        );
-    }
-
     public static function chatTypeLabel(Model $chat): string
     {
         $labelKey = match (ChatRegistry::chatType($chat)) {

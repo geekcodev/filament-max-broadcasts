@@ -38,24 +38,16 @@
 
 Целевые constraints — `geekcodev/laravel-max-client: ^2.0` и `geekcodev/max-php-client: ^2.0` (типизированные события
 MAX). Пока теги `v2.0.0` не выпущены, ветка `new` ставит обе зависимости как `dev-new` из Packagist; path-repositories
-не используются. Поддерживаемой считается форма реестра 1.2, код проверен на обеих формах. Плагин читает из `max_chats`
-поля `status`, `chat_type`, `last_activity_at` и фильтрует `status = active`, но **форма реестра различается** между
-версиями ядра, и от неё зависят ключ строки, связи чат-пользователь и колонка `title`:
+не используются. Поддерживается только форма реестра 1.2 (`laravel-max-client` v2): строка на чат, `chat_id` — первичный
+ключ, участники в `max_chat_users` (`chatUsers`, `maxUsers`), у групп и каналов есть `title`. Поддержка формы 1.1.x
+удалена в v2.0.0 вместе с legacy-ветками адаптера. Плагин читает из `max_chats` поля `status`, `chat_type`,
+`last_activity_at` и фильтрует `status = active`.
 
-- **1.1.x** — строка на пару (пользователь, чат): есть колонка `user_id` и `unique(user_id, chat_id)`, поэтому один чат
-  присутствует в реестре несколькими строками (дедуп по `chat_id` в `BroadcastRecipientsResolver` обязателен), а
-  `chat_id` объявлен `unsignedBigInteger` — MySQL отрицательные идентификаторы групп и каналов отвергнет (на PostgreSQL
-  `unsignedBigInteger` это знаковый `bigint`, то есть проблема специфична для MySQL);
-- **1.2.0** — строка на чат: первичный ключ `chat_id` (знаковый `bigInteger`), связи чат-пользователь вынесены в
-  `max_chat_users` (`chatUsers`, `maxUsers`), есть `title`, метаданные и `status` обязательны.
-
-Различия скрыты адаптером `Support\ChatRegistry` (единственное место в `src/`, которое знает про форму реестра):
-`userRelation()`, `withUsers()`, `whereUserLike()`, `user()`, `userId()`, `displayName()`. Вне адаптера обращаться к
-`maxUser`, `user_id` и `title` чата нельзя — на другой форме реестра этого просто нет. Проверка версии идёт через
-`composer show`, а Gate дополнительно проверяется в условиях CI (gotcha 11): `composer.lock` не коммитится, поэтому CI
-ставит пакеты без него. Если форма реестра у адаптера поменяется — план перевода, а не молчаливая правка кода. При
-обновлении хоста, который переходит на форму 1.2, порядок обязателен: `php artisan migrate`, затем
-`php artisan max:upgrade` — без второго шага `max_chat_users` останется пустым, и плагин не найдёт получателей.
+Всё общение с реестром идёт через `Support\ChatRegistry`: `userRelation()`, `withUsers()`, `whereUserLike()`, `user()`,
+`userId()`, `displayName()`, `chatType()`. Вне адаптера имена связей (`chatUsers`, `maxUsers`) и поле `title` не
+используются. Gate дополнительно проверяется в условиях CI (gotcha 11): `composer.lock` не коммитится, поэтому CI ставит
+пакеты без него. При обновлении с плагина 1.x сначала обновите `laravel-max-client` до v2 и выполните его миграции: без
+переноса `max_chat_users` плагин не найдёт получателей.
 
 ### Регрессии не чиним в стороннем проекте
 
@@ -87,7 +79,7 @@ MAX). Пока теги `v2.0.0` не выпущены, ветка `new` ста�
 - **Соответствие формулировки запроса и ответа** (не додумывай за пользователя):
 
   | Запрос пользователя | Что делаешь                                                                                |
-              |--------------------|--------------------------------------------------------------------------------------------|
+                |--------------------|--------------------------------------------------------------------------------------------|
   | «краткий текст коммита», «напиши коммит-сообщение», «subject» | Одна строка — head, без body, по Conventional Commits, по всем изменениям ветки. Коммит не создаёшь |
   | «текст коммита» без уточнений | То же самое: краткий head без body                                                               |
   | «полный текст коммита», «с body» | Head + body с переносами по 100 символов                                                        |
@@ -121,8 +113,8 @@ MAX). Пока теги `v2.0.0` не выпущены, ветка `new` ста�
 
 ## 3. Правила для ИИ-агентов
 
-1. В начале работы прочитай `AGENTS.md`, `README.md` и активный план `.agents/plans/PLAN-filament-max-broadcasts.md`
-   целиком. Примеры документированного workflow — соседние пакеты: `filament-max-chat`
+1. В начале работы прочитай `AGENTS.md`, `README.md` и активный план из `.agents/plans/` (если он есть) целиком. Примеры
+   документированного workflow — соседние пакеты: `filament-max-chat`
    (`/home/user/web/filament-max-chat/`) и `laravel-max-client` (`/home/user/web/laravel-max-client/`); источник истины
    по API MAX — ядро `../max-php-client/docs/api-reference.md` (раздел 9).
 2. **Не коммить и не пуши без явного запроса пользователя.**
@@ -153,8 +145,8 @@ MAX). Пока теги `v2.0.0` не выпущены, ветка `new` ста�
 11. Любой ключ перевода, который ты добавил в код, обязан существовать и в `lang/ru`, и в `lang/en` — иначе UI покажет
     сырые ключи, а тесты этого не поймают.
 12. По завершении каждой сессии заноси итог по формату из 4.1: строка в `.agents/journals/JOURNAL.md` + файл в
-    `.agents/journals/sessions/`, отмечай выполненные пункты в `.agents/plans/PLAN-filament-max-broadcasts.md`. Каталог
-    `.agents/` **коммитится** — прогресс должен быть виден после `git clone`.
+    `.agents/journals/sessions/`, отмечай выполненные пункты в активном плане (если он есть). Каталог `.agents/`
+    **коммитится** — прогресс должен быть виден после `git clone`.
 13. Перед правкой проверь чужие ловушки из раздела 10, а не открывай их заново.
 14. Если задача касается **Tailwind CSS** или **Livewire**, обращайся к локальным скиллам в
     `.agents/skills/tailwindcss-development/SKILL.md` и `.agents/skills/livewire-development/SKILL.md` соответственно —
@@ -193,7 +185,6 @@ src/
     BroadcastConsentAction.php         opt_in|opt_out (ответы на запрос согласия)
     BroadcastTypes/
       News.php, Promo.php              типы рассылок — backed-enum'ы, реализующие BroadcastTypeContract
-      ConsentPoll.php                  тип-источник callback-кнопок согласия (для SendConsentRequestsJob)
   Contracts/BroadcastTypeContract.php  контракт типа рассылки (label/buttonRows/badgeColor)
   Events/BroadcastCompleted.php        событие завершения рассылки
   Models/
@@ -213,18 +204,19 @@ src/
     BroadcastRecipientsResolver.php    источник MaxChat (активные чаты, дедуп по chat_id, resolveForChatIds по id) —
                                       расширяемый
     BroadcastSender.php                отправка в MAX: текст/медиавложения/кнопки-диплинки (uploadMedia + sendMessage)
-    ConsentService.php                 единая точка согласий: optIn/optOut/answeredChatIds, сегмент «Новости и акции»
+    ConsentService.php                 единая точка согласий: optIn/optOut/answeredChatIds по сегментам
     ConsentRequestService.php          кандидаты запроса согласия по сегменту (активные диалоги без ответа) + dispatch джобы
     BroadcastSegmentRecipients.php     получатели сегмента: только активные диалоги, счётчики для селекта и предупреждения
   Support/
     BroadcastTypes.php                 реестр типов из конфига (instance/contains/options/label/badgeColor)
     BroadcastTypeDefaults.php          трейт дефолтного поведения типов (lang-подпись, кнопки из per_type)
+    ConsentButtons.php                 кнопки запроса согласия: payload consent:<segmentId>:<action>, тексты из конфига
     ChatSelectionField.php             мультивыбор чатов: серверный поиск (лимит 50), области dialogsOnly /
                                       nonDialogsOnly, вариант «Выбрать всех» (служебное значение + dehydrate)
     BroadcastSegmentOptions.php        варианты селекта сегментов: только с получателями, бейдж числа получателей
     DialogsOnlyRule.php                серверная проверка: в сегмент только диалоги
-    ChatRegistry.php                   единственный адаптер к реестру чатов: форма 1.1.x против 1.2 (связи, user_id,
-                                      title, displayName)
+    ChatRegistry.php                   единственный адаптер к реестру чатов 1.2 (связи chatUsers/maxUsers, title,
+                                      displayName)
     AttachmentStorage.php             диск вложений и ссылки на них: публичный URL или временная подписанная ссылка
     AttachmentFile.php                локальный файл для uploadMedia: путь с локального диска или временная копия
                                       из объектного хранилища с очисткой после отправки
@@ -242,7 +234,7 @@ src/
 tests/                                PHPUnit + Orchestra Testbench
   Fixtures/                            AdminPanelProvider, TestUser, OffersType, OffersSegment, миграция users, Gate
                                       broadcasts.*; Chats/RawChat/RawUser — чаты и пользователи реестра, одинаковые
-                                      для обеих форм (gotcha 1); RemoteDisk — двойник объектного хранилища;
+                                      формы 1.2; RemoteDisk — двойник объектного хранилища;
                                       Queue::fake() и порядок provider'ов — в TestCase
   Support/                             MockHttpClient — подмена транспорта PSR-18 для ApiClient
   Unit/                                enums, models, sanitizer, resolver, types, sender, service, job, consent, plugin,
@@ -284,16 +276,16 @@ Filament-компонентах. `composer.lock`, `.phpunit.cache/`, `.phpstan-c
 ```
 .agents/
   skills/                             локальные скиллы: tailwindcss-development/, livewire-development/
-  plans/                              многошаговые планы
+  plans/                              активные многошаговые планы (завершённые удаляются)
   release/                            release-notes версий
   journals/
     JOURNAL.md                        таблица сессий, новые сверху
     sessions/                         подробности сессий
 ```
 
-- `plans/PLAN-filament-max-broadcasts.md` — активный план проекта: задачи, которые переживают одну сессию; шаги
-  отмечаются в нём, дублировать в другие файлы не надо. Отдельные задачи оформляются как
-  `plans/YYYY-MM-DD-<слаг>.md`.
+- `plans/YYYY-MM-DD-<слаг>.md` — активный план: задачи, которые переживают одну сессию; шаги отмечаются в нём,
+  дублировать в другие файлы не надо. Когда все пункты закрыты, итоги переносятся в журнал и release notes, а файл плана
+  удаляется: историю хранят журнал, release notes и git, а не завершённые планы.
 - `release/RELEASE_NOTES_vX.Y.Z.md` — release-notes версий, по одной на версию, в своём формате; файлы не удаляются,
   история остаётся в git.
 - `journals/JOURNAL.md` — таблица сессий, новые сверху, колонки `Дата`, `Файл`, `Теги`, `Описание`; в описании — что
@@ -307,14 +299,14 @@ Filament-компонентах. `composer.lock`, `.phpunit.cache/`, `.phpstan-c
 
 ### Что куда писать
 
-| Вопрос                                   | Файл                                                                        |
-|------------------------------------------|-----------------------------------------------------------------------------|
-| «Как устроен проект и что нельзя делать» | `AGENTS.md` — контракты, соглашения, Gate, gotchas, чек-лист                |
-| «Что делаем сейчас и в каком порядке»    | `.agents/plans/PLAN-filament-max-broadcasts.md` — шаги, критерии готовности |
-| «Что произошло в конкретной сессии»      | `.agents/journals/sessions/*.md` + строка в `JOURNAL.md`                    |
-| «Что вошло в релиз X.Y.Z»                | `.agents/release/RELEASE_NOTES_vX.Y.Z.md`                                   |
-| «Как пользоваться такими технологиями»   | `.agents/skills/*/SKILL.md`                                                 |
-| «Как этим пользоваться» (для хоста)      | `README.md` — установка, конфигурация, интеграция, история                  |
+| Вопрос                                   | Файл                                                         |
+|------------------------------------------|--------------------------------------------------------------|
+| «Как устроен проект и что нельзя делать» | `AGENTS.md` — контракты, соглашения, Gate, gotchas, чек-лист |
+| «Что делаем сейчас и в каком порядке»    | активный план в `.agents/plans/` — шаги, критерии готовности |
+| «Что произошло в конкретной сессии»      | `.agents/journals/sessions/*.md` + строка в `JOURNAL.md`     |
+| «Что вошло в релиз X.Y.Z»                | `.agents/release/RELEASE_NOTES_vX.Y.Z.md`                    |
+| «Как пользоваться такими технологиями»   | `.agents/skills/*/SKILL.md`                                  |
+| «Как этим пользоваться» (для хоста)      | `README.md` — установка, конфигурация, интеграция, история   |
 
 Правило: постоянное решение — в `AGENTS.md`; решение по конкретной задаче — в плане; факт о сессии — в журнале. Текст
 правил в плане и журнале не дублируем, даём ссылку на раздел `AGENTS.md`.
@@ -336,8 +328,8 @@ Filament-компонентах. `composer.lock`, `.phpunit.cache/`, `.phpstan-c
   свой
   `resolve()` — правила хоста не теряются. Если подкласс не меняет правила, ему достаточно оставить
   `supportsScopedResolution()` как есть. Модель чата — `config('filament-max-broadcasts.chats_model')` (по умолчанию
-  пакетный `GeekCo\LaravelMaxClient\Models\MaxChat`), статус — `MaxChatStatus::Active`. Дедуп обязателен и на форме
-  реестра 1.1.x, где строка на пару (пользователь, чат), и на 1.2.0, где строка на чат.
+  пакетный `GeekCo\LaravelMaxClient\Models\MaxChat`), статус — `MaxChatStatus::Active`. Дедуп по `chat_id` обязателен:
+  в `max_chat_users` у чата может быть несколько участников.
 - **Получатели**: `BroadcastService::create(..., ?array $chatIds = null, array $segments = [])`. Диалоги приходят только
   из сегментов (согласившиеся, `opt_in`), вручную выбираются только группы и каналы; явный диалог в `chatIds`
   игнорируется. Резолв: 1) с сегментами — согласившиеся диалоги ∪ выбранные вручную группы/каналы; 2) без сегментов —
@@ -387,9 +379,9 @@ Filament-компонентах. `composer.lock`, `.phpunit.cache/`, `.phpstan-c
   BroadcastSegment)`: кандидаты — активные диалоги из `chat_ids` самого сегмента без записи в `max_broadcast_consents`
   для этого сегмента, `SendConsentRequestsJob($segmentId)` (лок `consent:send-request:{segmentId}`, батчи) шлёт
   сообщение «Вы согласны получать рассылку «название»?» (`consent.request_message`, `:segment`) с кнопками «Да»/«Нет»
-  (`ConsentPoll::buttonRowsFor($segmentId)`, payload `consent:<segmentId>:<action>`; `BroadcastSender::send()` принимает
-  кнопки явным параметром). Payload без сегмента (`consent:<action>`) не принимается: регулярное выражение требует
-  сегмент, malformed и чужие callback'и игнорируются. Ответы ловит
+  (`Support\ConsentButtons::forSegment($segmentId)`, payload `consent:<segmentId>:<action>`; `BroadcastSender::send()`
+  принимает кнопки явным параметром). Payload без сегмента (`consent:<action>`) не принимается: регулярное выражение
+  требует сегмент, malformed и чужие callback'и игнорируются. Ответы ловит
   `HandleConsentCallback` (событие `MaxUpdateReceived`, регистрация в `FilamentMaxBroadcastsServiceProvider::boot()`),
   через `ConsentService::optIn/optOut(chatId, userId, segmentId)` делает upsert факта и **не меняет состав сегмента**:
   сегмент — вручную заданная аудитория, согласие живёт отдельно. Поэтому рассылка по сегменту берёт только `opt_in`
@@ -451,9 +443,8 @@ Xdebug включён и отчёт покрытия строится без д�
 3. **Статика**: `composer analyse` (PHPStan level max) → 0 ошибок.
 4. **Тесты**: `composer test` (PHPUnit) → зелёные (failOnRisky/failOnWarning).
 5. **Покрытие**: `composer coverage` → ≥порога строк (`scripts/check-coverage.php`). **Порог 95%** — измеренный факт на
-   текущем состоянии кода 97.84% строк (91.35% методов) на форме реестра 1.2 и 96.28% строк (89.73% методов) на legacy
-   1.1.x, то есть запас ~1.3 процентного пункта на худшей форме. Это храповик: при добавлении тестов порог можно
-   поднимать, понижать его вниз, чтобы «покрасить» Gate, нельзя (gotcha 18).
+   текущем состоянии кода 96.71% строк (87.82% методов), то есть запас ~1.6 процентного пункта. Это храповик: при
+   добавлении тестов порог можно поднимать, понижать его вниз, чтобы «покрасить» Gate, нельзя (gotcha 18).
 6. **Audit**: `composer security-audit` → 0 уязвимостей.
 7. **Проверка в условиях CI**: тот же Gate целиком в чистой копии дерева без `vendor/` и `composer.lock`, со свежей
    установкой по `composer.json` (правило 15, gotcha 11). Локальный прогон не заменяет этот шаг: локальные
@@ -507,10 +498,9 @@ Xdebug включён и отчёт покрытия строится без д�
 
 ## 10. Частые ошибки (gotchas)
 
-1. **Всё общение с реестром — через `Support\ChatRegistry`.** Constraint `^1.2.0` в `composer.json` закрывает legacy, но
-   CI без `composer.lock` в любой момент может поставить другую форму реестра, поэтому вне адаптера нельзя обращаться к
-   `maxUser`, `user_id` и `title` чата: на 1.1.x этого нет, а на 1.2 ключ строки — `chat_id`, не `id`. Проверка
-   фактической версии: `composer show geekcodev/laravel-max-client` + §1 «Статус и версии».
+1. **Всё общение с реестром — через `Support\ChatRegistry`.** Форма реестра одна (1.2), но имена связей и способ
+   получить пользователя чата не должны расползаться по коду: вне адаптера не обращайся к `chatUsers`, `maxUsers` и
+   `title` напрямую. Проверка фактической версии: `composer show geekcodev/laravel-max-client` + §1 «Статус и версии».
 2. **Выполненные миграции нельзя править на месте, а переименовывать можно только с guard.** Правило §2 повторяет здесь
    gotcha намеренно: именно из-за сдвига имён (`000005 → 000006`, плюс забытая миграция про
    `recipient_chat_ids`) у хоста `php artisan migrate` падал на повторном `Schema::create`. Поэтому перевод в полосу
@@ -536,15 +526,14 @@ Xdebug включён и отчёт покрытия строится без д�
    `canCreate()`/`canEdit()` обязаны возвращать `false`, иначе в UI появятся лишние кнопки.
 10. **Кэш PHPStan врёт**: устаревший `.phpstan-cache` даёт ложные краши Larastan
     (`Undefined constant Larastan\Larastan\LARAVEL_VERSION`) — лечится `rm -rf .phpstan-cache`.
-11. **`composer.lock` не коммитится — локальный Gate скрывает дрейф.** Локально стоит
-    `geekcodev/laravel-max-client v1.1.1`, а CI (без lock) получает свежие версии: зелёное локально может быть красным в
-    CI. Проверка в условиях CI: скопировать дерево без `vendor/` и `composer.lock` в `.ci-sim/`, выполнить там
-    `composer install` и весь Gate — CI делает ровно то же. Каталог удаляется после проверки; на случай забытой копии он
-    добавлен в `.gitignore`. Отдельно опасна подмена содержимого `vendor/` вручную (своим бэкапом, распакованным
-    архивом, выбранной версией пакета): `vendor/composer/installed.json` продолжает называть прежние версии, и зелёный
-    Gate на таком наборе не говорит ничего о том, что поставит CI. Такой прогон годится как проверка совместимости с
-    конкретной версией зависимости, но не закрывает Gate: закрывает только свежая установка по `composer.json` (правило
-    15, §7).
+11. **`composer.lock` не коммитится — локальный Gate скрывает дрейф.** Локально может стоять одна версия зависимости, а
+    CI (без lock) получает свежие версии: зелёное локально может быть красным в CI. Проверка в условиях CI: скопировать
+    дерево без `vendor/` и `composer.lock` в `.ci-sim/`, выполнить там `composer install` и весь Gate — CI делает ровно
+    то же. Каталог удаляется после проверки; на случай забытой копии он добавлен в `.gitignore`. Отдельно опасна подмена
+    содержимого `vendor/` вручную (своим бэкапом, распакованным архивом, выбранной версией пакета):
+    `vendor/composer/installed.json` продолжает называть прежние версии, и зелёный Gate на таком наборе не говорит
+    ничего о том, что поставит CI. Такой прогон годится как проверка совместимости с конкретной версией зависимости, но
+    не закрывает Gate: закрывает только свежая установка по `composer.json` (правило 15, §7).
 12. **Packagist из контейнера**: если `composer install` или `composer security-audit` зависает на сети (curl error 28,
     `Connection timed out`), помогает `COMPOSER_IPRESOLVE=4`
     (`docker compose run --rm -e COMPOSER_IPRESOLVE=4 app composer security-audit`); это временный флаг, в репозиторий
@@ -567,11 +556,10 @@ Xdebug включён и отчёт покрытия строится без д�
     (`assertCanSeeTableRecords`, `assertActionVisible` и подобные); production-ошибки в baseline не добавлять. В
     `phpstan.neon` стоит `reportUnmatchedIgnoredErrors: false`: в CI Filament/Livewire/Larastan новее, часть хелперных
     ошибок там просто не возникает, и незакрытая запись иначе роняет анализ при зелёном коде.
-18. **Порог покрытия 95% — храповик, а не цель**: сейчас 97.84% строк (91.35% методов) на форме реестра 1.2 и 96.28%
-    строк (89.73% методов) на legacy 1.1.x, то есть запас ~1.3 процентного пункта на худшей форме. Понижать порог вниз,
-    чтобы «покрасить» Gate, нельзя. Непокрытыми остаются защитные ветки, которые без моков финальных классов
-    недостижимы: `BroadcastTextSanitizer` (HTMLDocument бросает исключение, пустой body, `unwrap` без родителя), а также
-    редкие ветки `BroadcastForm`, `SendConsentRequestsJob`, `BroadcastSegmentResource`,
+18. **Порог покрытия 95% — храповик, а не цель**: сейчас 96.71% строк (87.82% методов), запас ~1.7 процентного пункта.
+    Понижать порог вниз, чтобы «покрасить» Gate, нельзя. Непокрытыми остаются защитные ветки, которые без моков
+    финальных классов недостижимы: `BroadcastTextSanitizer` (HTMLDocument бросает исключение, пустой body, `unwrap` без
+    родителя), а также редкие ветки `BroadcastForm`, `SendConsentRequestsJob`, `BroadcastSegmentResource`,
     `SendBroadcastJob`, `ViewBroadcast`, `BroadcastsTable`, `CreateBroadcast` и резолвера в service provider.
 19. **Ловушка репозитория**: release-notes и планы больше не создаются в корне (`RELEASE-vX.Y.Z.md`, `PLAN-*.md`) и
     рабочая память больше не в `.ai/` — только в `.agents/` (gotcha по путям из §2 и 4.1).
@@ -579,11 +567,10 @@ Xdebug включён и отчёт покрытия строится без д�
     корректный словарь и ошибку не покажет (GitHub Actions такую ошибку, наоборот, подсвечивает). При правке
     `.github/workflows/*.yml` проверяй строгим загрузчиком с поиском дубликатов или `actionlint`; в dev-контейнере
     `actionlint` и `yamllint` не установлены, поэтому проверка — глазами плюс строгий разбор.
-21. **Стабы форм реестра в тестах не наследуют `MaxChat`**: перекрытие `maxUser()` в подклассе конфликтует с дженериком
-    родителя в PHPStan level max (`method.childReturnType`, шаблон `TDeclaringModel` не ковариантен). Стабы форм
-    (`LegacyChat`, `PivotChat`, `PivotlessChat`) расширяют обычный `Model`; хостовые подклассы вроде
-    `ConfiguredChat` наследуют `MaxChat`, потому что этого требует контракт `chats_model`. Вне формы проверяй
-    `method_exists()`, а не `instanceof`, иначе статика считает проверку избыточной на одной из форм.
+21. **Стабы моделей в тестах.** Для чатов и пользователей без БД используй `RawChat`/`RawUser`: они форсят атрибуты
+    через `forceFill` и не зависят от `$fillable` модели ядра. Хостовый подкласс `ConfiguredChat` наследует `MaxChat`,
+    потому что этого требует контракт `chats_model`; перекрывать в нём связи реестра не нужно — адаптер работает через
+    объявленные связи ядра.
 22. **`.gitattributes`**: нужен паттерн `/.agents/**` — с завершающим слешем `git check-attr export-ignore` молча отдаёт
     `unspecified`.
 23. **Полоса миграций — это позиция пакета в общем порядке, а не отдельный диапазон.** Laravel сортирует миграции
@@ -667,8 +654,8 @@ Xdebug включён и отчёт покрытия строится без д�
 - [ ] Каждый новый ключ перевода присутствует и в `lang/ru`, и в `lang/en`; новая переменная — в `.env.example` и
   `config/filament-max-broadcasts.php`.
 - [ ] Секретов нет в коде, логах, коммитах; `README.md`, `.env.example` и `AGENTS.md` синхронны с кодом.
-- [ ] Обновлены `.agents/plans/PLAN-filament-max-broadcasts.md` и `.agents/journals/` (строка в `JOURNAL.md` + файл в
-  `sessions/` по формату 4.1).
+- [ ] Обновлены активный план (если он есть) и `.agents/journals/` (строка в `JOURNAL.md` + файл в `sessions/` по
+  формату 4.1).
 - [ ] Коммит/тег/push — только по явному запросу пользователя; иначе оставлено рабочее дерево и описан статус.
 - [ ] Если просили краткий текст коммита: только head, на английском по Conventional Commits, собран по всему diff ветки
   (не по последнему действию), коммит не создан. Body — только если просили отдельно.

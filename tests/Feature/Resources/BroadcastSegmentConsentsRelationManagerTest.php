@@ -124,9 +124,10 @@ class BroadcastSegmentConsentsRelationManagerTest extends TestCase
             // @phpstan-ignore method.notFound
             ->assertCanSeeTableRecords([$consent])
             ->assertSee('fi-badge', false)
-            ->assertSee(__('filament-max-broadcasts::broadcasts.chat_types.dialog'))
-            ->assertSee('ID: 11')
-            ->assertSee('ID: 5');
+            ->assertSee('11')
+            ->assertSee('5')
+            ->assertDontSee('ID: 11')
+            ->assertDontSee('ID: 5');
     }
 
     public function testNameColumnFallsBackToAnonymousLabelWithoutChat(): void

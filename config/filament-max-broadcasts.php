@@ -94,7 +94,7 @@ return [
     // Слушатель HandleConsentCallback обрабатывает MessageCallback и привязывает
     // ответ к сегменту из payload кнопки. Payload кнопок всегда
     // consent:<segmentId>:<action>; опросы без сегмента не принимаются.
-    // segment_name — стартовый сегмент для вызовов ConsentService без segmentId.
+    // segment_name — имя стартового пустого сегмента, который создаёт миграция.
     // :segment в request_message — название сегмента.
     'consent' => [
         'consent_model'       => GeekCo\FilamentMaxBroadcasts\Models\BroadcastConsent::class,

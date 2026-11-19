@@ -15,7 +15,6 @@ return [
     'type' => [
         'news' => 'News',
         'promo' => 'Promo',
-        'consent' => 'Consent poll',
     ],
 
     'consent' => [
@@ -58,9 +57,9 @@ return [
         'message_section' => 'Message',
         'message_section_description' => 'Message text and media attachments.',
         'type' => 'Broadcast type',
-        'type_helper' => 'Deep-link buttons to the mini-app are added for types that have them configured (config buttons.per_type).',
+        'type_helper' => 'Deep-link buttons to the mini-app are added for types that have them configured.',
         'text' => 'Message text',
-        'text_helper' => 'MAX supports: bold, italic, underline, strikethrough, highlighted, headings, quote, monospace text and links. API limit — 4000 characters.',
+        'text_helper' => 'MAX supports: bold, italic, underline, strikethrough, highlighted, headings, quote, monospace text and links. Message limit — 4000 characters.',
         'images' => 'Images',
         'images_helper' => 'Multiple images — attach several files at once.',
         'videos' => 'Videos',
@@ -68,7 +67,7 @@ return [
         'scheduled_at' => 'Send time',
         'scheduled_at_helper' => 'Leave empty to send immediately after creation.',
         'recipients_section' => 'Recipients',
-        'recipients_section_description' => 'Pick segments or tick chats manually. At least one of the two fields is required.',
+        'recipients_section_description' => 'Pick segments and/or groups and channels. At least one of the fields is required.',
         'segments' => 'Recipient segments',
         'segment_default' => 'Pick segments',
         'segments_helper' => 'Only segments with consented recipients are shown; the badge shows their number. Picking a segment fills the recipient list with those who agreed; you can adjust it manually.',
@@ -147,7 +146,7 @@ return [
         'view' => [
             'info_section' => 'Segment',
             'recipients_section' => 'Recipients',
-            'recipients_section_description' => 'Dialogs that receive broadcasts from this segment.',
+            'recipients_section_description' => 'Chats added to the segment; broadcasts go to the consented dialogs.',
             'no_recipients' => 'No recipients',
             'chat_fallback' => 'Chat :id',
             'non_dialog_warning' => 'The segment contains groups or channels: :count. Segment broadcasts will not reach them.',
@@ -156,10 +155,10 @@ return [
 
     'consent_table' => [
         'id' => 'ID',
-        'name' => 'Name',
+        'name' => 'Chat name',
         'anonymous_chat' => 'Chat :id',
-        'chat_id' => 'MAX chat_id',
-        'user_id' => 'MAX user_id',
+        'chat_id' => 'Chat ID',
+        'user_id' => 'User ID',
         'segment' => 'Segment',
         'action' => 'Action',
         'source' => 'Source',
@@ -174,14 +173,14 @@ return [
         'broadcast_cancelled' => 'Broadcast cancelled',
         'consent_request_started' => 'Consent request sent to :count recipients',
         'consent_no_recipients' => 'No dialogs for the consent request — everyone has already replied',
-        'repeat_empty' => 'This broadcast cannot be repeated: it had no recipients',
+        'repeat_empty' => 'Nothing to repeat: this broadcast has no recipients',
     ],
 
     'recipients' => [
         'title' => 'Recipients',
-        'name' => 'Name',
-        'user_id' => 'MAX user_id',
-        'chat_id' => 'MAX chat_id',
+        'name' => 'User name',
+        'user_id' => 'User ID',
+        'chat_id' => 'Chat ID',
         'status' => 'Status',
         'error' => 'Error',
         'sent_at' => 'Sent at',

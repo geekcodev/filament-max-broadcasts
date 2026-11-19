@@ -13,6 +13,7 @@ use GeekCo\FilamentMaxBroadcasts\Tests\Fixtures\TestUser;
 use GeekCo\FilamentMaxBroadcasts\Tests\Fixtures\Chats;
 use GeekCo\FilamentMaxBroadcasts\Tests\TestCase;
 use GeekCo\LaravelMaxClient\Enums\MaxChatStatus;
+use GeekCo\LaravelMaxClient\Models\MaxUser;
 use GeekCo\MaxPhpClient\Enum\ChatType;
 use Livewire\Livewire;
 
@@ -85,7 +86,7 @@ class BroadcastConsentResourceTest extends TestCase
             ->assertSee(BroadcastConsentAction::OptOut->label());
     }
 
-    public function testIndexPageShowsChatNameAndType(): void
+    public function testIndexPageShowsChatNameAndId(): void
     {
         $segment = $this->createSegment();
 
@@ -99,12 +100,18 @@ class BroadcastConsentResourceTest extends TestCase
             'status' => MaxChatStatus::Active,
             'chat_type' => ChatType::Dialog,
         ]);
+        MaxUser::query()->create([
+            'user_id' => 1,
+            'first_name' => 'Иван',
+        ]);
 
         $this->actingAs($this->adminUser());
 
         $this->get(BroadcastConsentResource::getUrl('index'))
             ->assertSuccessful()
-            ->assertSee(__('filament-max-broadcasts::broadcasts.chat_types.dialog'));
+            ->assertSee('Иван')
+            ->assertSee('11')
+            ->assertDontSee(__('filament-max-broadcasts::broadcasts.chat_types.dialog'));
     }
     public function testIndexPageFiltersConsentsBySegment(): void
     {

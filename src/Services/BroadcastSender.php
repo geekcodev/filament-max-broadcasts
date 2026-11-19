@@ -63,7 +63,7 @@ class BroadcastSender
         Recipient $recipient,
         string $text,
         array $media,
-        BroadcastTypeContract $type,
+        ?BroadcastTypeContract $type = null,
         ?array $buttonRows = null,
     ): void {
         $attachments = [];
@@ -78,7 +78,7 @@ class BroadcastSender
             $attachments[] = $this->uploadMedia($uploadType, $item['path']);
         }
 
-        $rows = $buttonRows ?? $type->buttonRows();
+        $rows = $buttonRows ?? $type?->buttonRows() ?? [];
 
         if ($rows !== []) {
             $attachments[] = new InlineKeyboardAttachmentRequest(

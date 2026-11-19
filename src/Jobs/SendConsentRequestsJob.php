@@ -4,12 +4,11 @@ declare(strict_types=1);
 
 namespace GeekCo\FilamentMaxBroadcasts\Jobs;
 
-use GeekCo\FilamentMaxBroadcasts\Contracts\BroadcastTypeContract;
-use GeekCo\FilamentMaxBroadcasts\Enums\BroadcastTypes\ConsentPoll;
 use GeekCo\FilamentMaxBroadcasts\Models\BroadcastSegment;
 use GeekCo\FilamentMaxBroadcasts\Services\BroadcastSender;
 use GeekCo\FilamentMaxBroadcasts\Services\BroadcastTextSanitizer;
 use GeekCo\FilamentMaxBroadcasts\Services\ConsentRequestService;
+use GeekCo\FilamentMaxBroadcasts\Support\ConsentButtons;
 use GeekCo\FilamentMaxBroadcasts\Support\ChatRegistry;
 use GeekCo\LaravelMaxClient\Models\MaxChat;
 use GeekCo\MaxPhpClient\Dto\Recipient;
@@ -107,14 +106,13 @@ class SendConsentRequestsJob implements ShouldQueue
         }
 
         $message = $sanitizer->toMaxHtml($this->requestText($segment));
-        $type = ConsentPoll::ConsentPoll;
-        $buttonRows = ConsentPoll::buttonRowsFor($this->segmentId);
+        $buttonRows = ConsentButtons::forSegment($this->segmentId);
         $batchSize = config()->integer('filament-max-broadcasts.queue.batch_size', 25);
 
         foreach ($chats->chunk($batchSize) as $chunk) {
             /** @var MaxChat $chat */
             foreach ($chunk as $chat) {
-                $this->sendTo($sender, $chat, $message, $type, $buttonRows);
+                $this->sendTo($sender, $chat, $message, $buttonRows);
             }
         }
     }
@@ -132,11 +130,13 @@ class SendConsentRequestsJob implements ShouldQueue
     /**
      * @param  list<list<\GeekCo\MaxPhpClient\Dto\Button>>  $buttonRows
      */
+    /**
+     * @param  list<list<\GeekCo\MaxPhpClient\Dto\Button>>  $buttonRows
+     */
     private function sendTo(
         BroadcastSender $sender,
         MaxChat $chat,
         string $message,
-        BroadcastTypeContract $type,
         array $buttonRows,
     ): void {
         /** @var int $chatId */
@@ -148,7 +148,7 @@ class SendConsentRequestsJob implements ShouldQueue
                 new Recipient(chatId: $chatId, userId: $userId),
                 $message,
                 [],
-                $type,
+                null,
                 $buttonRows,
             );
         } catch (Throwable $exception) {

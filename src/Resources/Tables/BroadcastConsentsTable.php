@@ -39,16 +39,14 @@ class BroadcastConsentsTable
                 ->sortable(),
             TextColumn::make('chat_id')
                 ->label(__('filament-max-broadcasts::broadcasts.consent_table.chat_id'))
-                ->html()
-                ->getStateUsing(static fn (BroadcastConsent $record): string => self::chatBadges($record))
+                ->getStateUsing(static fn (BroadcastConsent $record): string => (string) $record->chat_id)
                 ->sortable()
                 ->searchable(),
             TextColumn::make('user_id')
                 ->label(__('filament-max-broadcasts::broadcasts.consent_table.user_id'))
-                ->html()
                 ->getStateUsing(
                     static fn (BroadcastConsent $record): ?string => $record->user_id !== null
-                        ? ChatSelectionField::idBadge($record->user_id)
+                        ? (string) $record->user_id
                         : null,
                 )
                 ->placeholder('—')
@@ -157,11 +155,4 @@ class BroadcastConsentsTable
             });
     }
 
-    private static function chatBadges(BroadcastConsent $record): string
-    {
-        $chat = $record->chat;
-        $type = $chat instanceof Model ? ChatSelectionField::typeBadge($chat).' ' : '';
-
-        return $type.ChatSelectionField::idBadge($record->chat_id);
-    }
 }

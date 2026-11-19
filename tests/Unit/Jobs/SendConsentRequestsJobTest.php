@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace GeekCo\FilamentMaxBroadcasts\Tests\Unit\Jobs;
 
-use GeekCo\FilamentMaxBroadcasts\Enums\BroadcastTypes\ConsentPoll;
 use GeekCo\FilamentMaxBroadcasts\Jobs\SendConsentRequestsJob;
 use GeekCo\FilamentMaxBroadcasts\Models\BroadcastSegment;
 use GeekCo\FilamentMaxBroadcasts\Services\BroadcastRecipientsResolver;
@@ -77,7 +76,7 @@ class SendConsentRequestsJobTest extends TestCase
                 static fn (string $text): bool => str_contains($text, '«VIP»'),
             ),
             [],
-            ConsentPoll::ConsentPoll,
+            null,
             Mockery::type('array'),
         );
 
@@ -94,7 +93,7 @@ class SendConsentRequestsJobTest extends TestCase
             Mockery::any(),
             Mockery::any(),
             [],
-            ConsentPoll::ConsentPoll,
+            null,
             Mockery::on(function (array $rows) use ($segment): bool {
                 /** @var list<\GeekCo\MaxPhpClient\Dto\Button\CallbackButton> $buttons */
                 $buttons = $rows[0];
