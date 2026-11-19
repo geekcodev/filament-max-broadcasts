@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace GeekCo\FilamentMaxBroadcasts\Tests\Feature\Resources;
 
+use Filament\Forms\Components\FileUpload;
 use GeekCo\FilamentMaxBroadcasts\Enums\BroadcastStatus;
 use GeekCo\FilamentMaxBroadcasts\Jobs\SendBroadcastJob;
 use GeekCo\FilamentMaxBroadcasts\Models\Broadcast;
@@ -20,6 +21,7 @@ use GeekCo\LaravelMaxClient\Enums\MaxChatStatus;
 use GeekCo\LaravelMaxClient\Models\MaxChat;
 use GeekCo\MaxPhpClient\Enum\ChatType;
 use GeekCo\MaxPhpClient\Enum\UploadType;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Livewire\Livewire;
@@ -94,6 +96,48 @@ class BroadcastResourceTest extends TestCase
         Queue::assertPushed(SendBroadcastJob::class);
     }
 
+    public function testCreateBroadcastAcceptsWhitelistedFileType(): void
+    {
+        Storage::fake('local');
+
+        $this->actingAs($this->adminUser());
+        $this->activeChat();
+
+        Livewire::test(CreateBroadcast::class)
+            ->fillForm([
+                'type' => 'news',
+                'text' => 'Body',
+                'recipient_chat_ids' => [11],
+                'files' => [UploadedFile::fake()->create('doc.pdf', 10, 'application/pdf')],
+            ])
+            ->call('create')
+            ->assertHasNoFormErrors();
+
+        /** @var Broadcast $broadcast */
+        $broadcast = Broadcast::query()->firstOrFail();
+        $attachment = $broadcast->attachments()->firstOrFail();
+
+        self::assertSame(UploadType::File, $attachment->upload_type);
+        self::assertStringEndsWith('.pdf', $attachment->path);
+        Storage::disk('local')->assertExists($attachment->path);
+    }
+
+    public function testAttachmentsFileFieldUsesConfiguredWhitelist(): void
+    {
+        $this->actingAs($this->adminUser());
+
+        /** @var list<string> $expected */
+        $expected = array_values((array) config('filament-max-broadcasts.image.accepted_file_types'));
+
+        self::assertContains('application/pdf', $expected);
+        self::assertNotContains('image/png', $expected);
+
+        Livewire::test(CreateBroadcast::class)
+            ->assertFormFieldExists('files', static function (FileUpload $field) use ($expected): bool {
+                return $field->getAcceptedFileTypes() === $expected;
+            });
+    }
+
     public function testCreateBroadcastIsForbiddenWithoutCreatePermission(): void
     {
         $user = $this->userWithoutBroadcastRights();
@@ -166,6 +210,7 @@ class BroadcastResourceTest extends TestCase
     public function testViewPageShowsImagePreviewAndLinksForOtherFiles(): void
     {
         Storage::fake('public');
+        config()->set('filament-max-broadcasts.image.disk', 'public');
 
         Storage::disk('public')->put('images/photo.png', 'fake');
         Storage::disk('public')->put('files/doc.txt', 'fake');
@@ -192,6 +237,58 @@ class BroadcastResourceTest extends TestCase
         self::assertStringContainsString('<img ', $html);
         self::assertStringContainsString('src="'.\e($imageUrl).'"', $html);
         self::assertStringContainsString('href="'.\e($fileUrl).'"', $html);
+    }
+
+    public function testViewPageServesPrivateAttachmentsByTemporaryUrls(): void
+    {
+        Storage::disk('local')->put('broadcasts/photo.png', 'fake');
+        Storage::disk('local')->put('broadcasts/doc.txt', 'fake');
+
+        try {
+            $broadcast = $this->broadcast(BroadcastStatus::Completed);
+            $broadcast->attachments()->createMany([
+                ['upload_type' => UploadType::Image->value, 'path' => 'broadcasts/photo.png', 'sort_order' => 0],
+                ['upload_type' => UploadType::File->value, 'path' => 'broadcasts/doc.txt', 'sort_order' => 1],
+            ]);
+            $this->actingAs($this->adminUser());
+
+            $html = $this->get(BroadcastResource::getUrl('view', ['record' => $broadcast]))
+                ->assertSuccessful()
+                ->getContent();
+
+            self::assertIsString($html);
+
+            self::assertStringContainsString('<img ', $html);
+            self::assertMatchesRegularExpression(
+                '/src="[^"]*\/storage\/broadcasts\/photo\.png\?[^"]*signature/',
+                $html,
+            );
+            self::assertMatchesRegularExpression(
+                '/href="[^"]*\/storage\/broadcasts\/doc\.txt\?[^"]*signature/',
+                $html,
+            );
+        } finally {
+            Storage::disk('local')->delete(['broadcasts/photo.png', 'broadcasts/doc.txt']);
+        }
+    }
+
+    public function testViewPageShowsFileNameWithoutLinkWhenFileIsMissing(): void
+    {
+        $broadcast = $this->broadcast(BroadcastStatus::Completed);
+        $broadcast->attachments()->createMany([
+            ['upload_type' => UploadType::Image->value, 'path' => 'broadcasts/missing.png', 'sort_order' => 0],
+            ['upload_type' => UploadType::File->value, 'path' => 'broadcasts/missing.pdf', 'sort_order' => 1],
+        ]);
+        $this->actingAs($this->adminUser());
+
+        $html = $this->get(BroadcastResource::getUrl('view', ['record' => $broadcast]))
+            ->assertSuccessful()
+            ->getContent();
+
+        self::assertIsString($html);
+        self::assertStringNotContainsString('<img ', $html);
+        self::assertStringContainsString('missing.pdf', $html);
+        self::assertStringNotContainsString('broadcasts/missing', $html);
     }
 
     public function testSendNowAction(): void

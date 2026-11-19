@@ -85,7 +85,7 @@ MAX). Пока теги `v2.0.0` не выпущены, ветка `new` ста�
 - **Соответствие формулировки запроса и ответа** (не додумывай за пользователя):
 
   | Запрос пользователя | Что делаешь                                                                                |
-          |--------------------|--------------------------------------------------------------------------------------------|
+            |--------------------|--------------------------------------------------------------------------------------------|
   | «краткий текст коммита», «напиши коммит-сообщение», «subject» | Одна строка — head, без body, по Conventional Commits, по всем изменениям ветки. Коммит не создаёшь |
   | «текст коммита» без уточнений | То же самое: краткий head без body                                                               |
   | «полный текст коммита», «с body» | Head + body с переносами по 100 символов                                                        |
@@ -203,7 +203,7 @@ src/
   Jobs/
     SendBroadcastJob.php               очередь рассылки: лок, батчи, ретраи, отмена, счётчики
     SendConsentRequestsJob.php         очередь запроса согласия: лок, пере-резолв кандидатов, батчи
-  Listeners/HandleConsentCallback.php  приём callback-ответов согласия (MaxUpdateReceived) + ответ sendAnswer
+  Listeners/HandleConsentCallback.php  приём callback-ответов согласия (MaxUpdateReceived) + ответ answerCallback
   Services/
     BroadcastService.php               create(): резолв получателей (chatIds → сегменты, только диалоги) + dispatch
     BroadcastTextSanitizer.php         санитизация HTML под whitelist тегов MAX + toMaxHtml()
@@ -220,6 +220,9 @@ src/
     DialogsOnlyRule.php                серверная проверка: в сегмент только диалоги
     ChatRegistry.php                   единственный адаптер к реестру чатов: форма 1.1.x против 1.2 (связи, user_id,
                                       title, displayName)
+    AttachmentStorage.php             диск вложений и ссылки на них: публичный URL или временная подписанная ссылка
+    AttachmentFile.php                локальный файл для uploadMedia: путь с локального диска или временная копия
+                                      из объектного хранилища с очисткой после отправки
   Resources/
     BroadcastResource.php              Filament-ресурс «Рассылки»
     BroadcastSegmentResource.php       Filament-ресурс «Сегменты» (список/создание/просмотр/редактирование)
@@ -233,7 +236,8 @@ src/
 tests/                                PHPUnit + Orchestra Testbench
   Fixtures/                            AdminPanelProvider, TestUser, OffersType, OffersSegment, миграция users, Gate
                                       broadcasts.*; Chats/RawChat/RawUser — чаты и пользователи реестра, одинаковые
-                                      для обеих форм (gotcha 1); Queue::fake() и порядок provider'ов — в TestCase
+                                      для обеих форм (gotcha 1); RemoteDisk — двойник объектного хранилища;
+                                      Queue::fake() и порядок provider'ов — в TestCase
   Support/                             MockHttpClient — подмена транспорта PSR-18 для ApiClient
   Unit/                                enums, models, sanitizer, resolver, types, sender, service, job, consent, plugin,
                                       адаптер реестра чатов, метаданные ресурса согласий
@@ -343,16 +347,19 @@ Filament-компонентах. `composer.lock`, `.phpunit.cache/`, `.phpstan-c
   общем для всех воркеров хранилище кэша (redis/database/memcached): на `file`/`array` два процесса возьмут одну
   рассылку — gotcha 15.
 - **BroadcastSender** — единственная точка отправки рассылки: загрузка медиавложений (картинки/видео/файлы через
-  `uploadMedia`, `UploadType→AttachmentType` match, чтение по локальному пути `Storage::disk(...)->path(...)`, публичный
-  URL хранилища не нужен), кнопки-диплинки (InlineKeyboard) от `BroadcastTypeContract::buttonRows()`, сообщение с
-  `format=html`. Прямые вызовы ApiClient из Filament/Page запрещены.
+  `uploadMedia`, DTO вложения по `UploadType`), кнопки-диплинки (`Keyboard`/`LinkButton`/`CallbackButton`) от
+  `BroadcastTypeContract::buttonRows()`, сообщение с `format=html`. Ядро принимает только локальный путь, поэтому файл
+  готовит `Support\AttachmentFile`: локальный диск — путь напрямую, объектное хранилище — временная копия, одна на
+  рассылку (кэш в отправителе), она удаляется после завершения рассылки. Прямые вызовы ApiClient из Filament/Page
+  запрещены. Диск вложений и ссылки на них для админки — `Support\AttachmentStorage` (приватный диск → временная
+  подписанная ссылка), дефолт — `local` (gotcha 29).
 - **Санатизация**: `BroadcastTextSanitizer` (whitelist тегов MAX, drop script/style, unwrap неизвестных) + `toMaxHtml()`
   — разворачивание `<p>`/`<div>`/`<br>` в `\n`, иначе MAX не рендерит абзацы. Применяется и при создании, и перед
   отправкой.
 - **Типы и кнопки**: типы рассылок — это поведение. Реестр `types` из конфига отображает токен на класс, реализующий
   `BroadcastTypeContract` (default: `Enums\BroadcastTypes\{News,Promo}`, каждый — backed-enum с case value === токен).
   Простейший тип строится на трейте `BroadcastTypeDefaults`: подпись из lang `broadcasts.type.<token>`, кнопки из
-  `bot_username` + `buttons.per_type.<token>` (`list<InlineKeyboardButtonRow>`, URL
+  `bot_username` + `buttons.per_type.<token>` (`list<list<Button>>`, URL
   `https://max.ru/<bot>?startapp=<param>`), цвет badge `gray`. Хост добавляет тип = свой enum (трейт + нужные
   переопределения `label()/buttonRows()/badgeColor()`) + строка в `types`. Кнопок нет при пустом `bot_username`, пустом
   списке или переопределённом `buttonRows()`. `BroadcastTypes` — реестр: `instance()/contains()/options()/label()/
@@ -371,7 +378,7 @@ Filament-компонентах. `composer.lock`, `.phpunit.cache/`, `.phpstan-c
   через `ConsentService::optIn/optOut(chatId, userId, segmentId)` делает upsert факта и добавляет/убирает `chat_id` в
   сегменте из payload (неизвестный сегмент — callback игнорируется), после чего удаляет исходное сообщение с опросом
   (`ApiClient::deleteMessage`; при ошибке — fallback `editMessage` без кнопок), отвечает на нажатие
-  `ApiClient::sendAnswer` и подтверждает выбор в чат. Одна актуальная запись на пару `(segment_id, chat_id)`;
+  `ApiClient::answerCallback` и подтверждает выбор в чат. Одна актуальная запись на пару `(segment_id, chat_id)`;
   `answeredChatIds(segmentId)` — дедуп ответивших в этом сегменте (их повторно не опрашивают, проигнорировавших — да).
   Журнал ответов — `BroadcastConsentResource` (read-only: `canCreate()`/
   `canEdit()` → `false`) с фильтрами по сегменту (включая `none` — записи удалённых сегментов) и действию. При удалении
@@ -442,13 +449,16 @@ Xdebug включён и отчёт покрытия строится без д�
 
 - **A01** — доступ к ресурсу и действиям только по правам (`permissions.*`); fail-closed, без прав — недоступно;
   `canCreate()`/`canEdit()` у read-only ресурса возвращают `false` (в Filament это не поведение по умолчанию).
-- **A02** — секреты только в env; не логировать токены. Вложения рассылки по умолчанию кладутся на диск `public`
-  (`image.disk`), то есть доступны по HTTP; отправка в MAX идёт по локальному пути, поэтому публичность диска не нужна —
-  переход на приватный диск и его последствия решаются отдельной задачей (пункт 3 плана), молча не меняй дефолт.
+- **A02** — секреты только в env; не логировать токены. Вложения рассылки по умолчанию лежат на приватном диске
+  `local` (`image.disk`): в MAX они уходят через `uploadMedia`, а в админке показываются по временным подписанным
+  ссылкам (`Support\AttachmentStorage`). Диск может быть и локальным публичным, и объектным хранилищем — ссылки в
+  админке всё равно подписанные, а временная копия для загрузки удаляется после отправки (`Support\AttachmentFile`).
+  Дефолт менять на публичный нельзя.
 - **A03** — текст рассылки санитизируется `BroadcastTextSanitizer` (whitelist, безопасные схемы href) до сохранения и до
   отправки; Blade/формы экранируются по умолчанию.
 - **A04** — получатели не контролируются пользователем из формы (ветка выбора чатов — серверная логика, в UI только
-  найденные сервером `chat_id`); лимиты вложений (`image.max_kb`, `image.accepted_mime_types`), лимит текста (4000).
+  найденные сервером `chat_id`); лимиты вложений (`image.max_kb`, `image.accepted_mime_types`,
+  `image.accepted_file_types`), лимит текста (4000).
 - **A05** — publishable-конфиг с безопасными дефолтами; секреты не в коде; `env()` читается только в конфиге.
 - **A06** — `composer security-audit` в Gate и CI; `composer.lock` не коммитится, поэтому дрейф версий проверяй честно
   (gotcha 11).
@@ -466,7 +476,7 @@ Xdebug включён и отчёт покрытия строится без д�
 - Сводка эндпоинтов, DTO и enums: `max-php-client/docs/api-reference.md` в соседнем репозитории — не дублируй её здесь,
   читай.
 - Отправка рассылки: `ApiClient::sendMessage` (`NewMessageBody`, `TextFormat::Html`), `uploadMedia` для медиавложений,
-  `InlineKeyboardButton`/`ButtonType::Link` для кнопок-диплинок, `sendAnswer` для ответа на callback, `deleteMessage`
+  `Keyboard`/`LinkButton`/`CallbackButton` для кнопок-диплинок, `answerCallback` для ответа на callback, `deleteMessage`
   для удаления сообщения с опросом и `editMessage` для правки сообщения с кнопками. Сигнатуры брать из пакета
   `geekcodev/max-php-client`, не выдумывать.
 - Реестр чатов/пользователей — из `geekcodev/laravel-max-client` (`MaxChat`, `MaxUser`, `MaxChatStatus`).
@@ -594,6 +604,25 @@ Xdebug включён и отчёт покрытия строится без д�
     поэтому `max_broadcast_consents.segment_id` объявлен nullable в create-миграции `0000_03_000005` (новые установки)
     и приведён к nullable миграцией `0000_03_000008` (существующие). Общий журнал показывает такие записи вариантом «Без
     сегмента». При добавлении FK с `nullOnDelete()` всегда проверяй `nullable()` и пиши тест на удаление родителя.
+
+29. **Диск вложений: приватность, объектное хранилище и временные ссылки.** Дефолт `image.disk` — `local`
+    (`storage/app/private`), потому что файлы нужны только для `uploadMedia`: дальше MAX отдаёт их со своих серверов.
+    Диск может быть любым: локальный публичный/приватный или объектное хранилище (S3 и подобные). Ядро `max-php-client`
+    принимает только локальный путь, поэтому файл к загрузке готовит `Support\AttachmentFile`: локальный диск — путь
+    напрямую, удалённый — скачивание во временную копию в `sys_get_temp_dir()` (с исходным именем, чтобы оно сохранилось
+    в MAX) с правами 0600 и проверкой размера. Копия одна на рассылку (кэш в `BroadcastSender`), удаляется в его
+    деструкторе, то есть после всех получателей. Отсюда требование к хосту: временный каталог должен вмещать одно
+    вложение (до `image.max_kb`, ~50 МБ). Ссылки в админке строит `Support\AttachmentStorage`:
+    прямой URL только у локального публичного диска, у объектного хранилища всегда подписанная ссылка (presigned), даже
+    для публичного бакета; у локального приватного временные ссылки работают только при `'serve' => true`
+    в `config/filesystems.php`
+    (дефолт Laravel 11+, в Testbench включён в `defineEnvironment`). Без временных ссылок `AttachmentStorage::url()`
+    возвращает null и в UI остаётся имя файла — это осознанная деградация, а не повод возвращать публичный дефолт.
+    `Storage::fake()` всегда подменяет `temporaryUrl` своим замыканием, поэтому ветку «диск не умеет временные ссылки»
+    проверяй на настоящем диске без `serve`; удалённый диск в тестах подменяет `tests/Fixtures/RemoteDisk`. Поле «Файлы»
+    ограничено `image.accepted_file_types`, картинки/видео — `image.accepted_mime_types`; Filament валидирует только
+    `TemporaryUploadedFile`, поэтому в тестах правило проверяется через `getAcceptedFileTypes()`, а не подстановкой
+    `UploadedFile::fake()`.
 
 ## 11. Чек-лист перед завершением задачи
 

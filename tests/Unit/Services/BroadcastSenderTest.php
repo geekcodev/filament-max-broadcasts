@@ -8,6 +8,7 @@ use GeekCo\FilamentMaxBroadcasts\Enums\BroadcastTypes\News;
 use GeekCo\FilamentMaxBroadcasts\Enums\BroadcastTypes\Promo;
 use GeekCo\FilamentMaxBroadcasts\Services\BroadcastSender;
 use GeekCo\FilamentMaxBroadcasts\Tests\Fixtures\OffersType;
+use GeekCo\FilamentMaxBroadcasts\Tests\Fixtures\RemoteDisk;
 use GeekCo\FilamentMaxBroadcasts\Tests\TestCase;
 use GeekCo\FilamentMaxBroadcasts\Tests\Support\MockHttpClient;
 use GeekCo\MaxPhpClient\ApiClient;
@@ -239,6 +240,102 @@ class BroadcastSenderTest extends TestCase
         self::assertSame('tok-v', $attachments[0]['payload']['token'] ?? null);
         self::assertSame('file', $attachments[1]['type'] ?? null);
         self::assertSame('tok-f', $attachments[1]['payload']['token'] ?? null);
+    }
+
+    public function testUploadsAttachmentFromDefaultPrivateDisk(): void
+    {
+        Storage::disk('local')->put('broadcasts/private.mp4', 'fake-video');
+
+        try {
+            self::assertSame('local', config()->string('filament-max-broadcasts.image.disk'));
+
+            [$http, $sender] = $this->makeSender([
+                new Response(200, [], json_encode(['url' => 'https://upload.example/private', 'token' => 's'], JSON_THROW_ON_ERROR)),
+                new Response(200, [], json_encode(['token' => 'tok-private'], JSON_THROW_ON_ERROR)),
+                $this->messageResponse(111),
+            ]);
+
+            $sender->send(
+                new Recipient(chatId: 111, userId: 222),
+                'Private media',
+                [
+                    ['upload_type' => 'video', 'path' => 'broadcasts/private.mp4'],
+                ],
+                News::News,
+            );
+
+            $body = $this->decodeBody($http);
+
+            $attachments = $this->attachments($body);
+            self::assertCount(1, $attachments);
+            self::assertSame('video', $attachments[0]['type'] ?? null);
+            self::assertSame('tok-private', $attachments[0]['payload']['token'] ?? null);
+            self::assertFalse(Storage::disk('public')->exists('broadcasts/private.mp4'));
+        } finally {
+            Storage::disk('local')->delete('broadcasts/private.mp4');
+        }
+    }
+
+    public function testUploadsAttachmentFromObjectStorageDisk(): void
+    {
+        $disk = new RemoteDisk(['broadcasts/clip.mp4' => 'remote-video-bytes']);
+
+        Storage::set('remote-test', $disk);
+        config()->set('filament-max-broadcasts.image.disk', 'remote-test');
+
+        [$http, $sender] = $this->makeSender([
+            new Response(200, [], json_encode(['url' => 'https://upload.example/remote', 'token' => 's'], JSON_THROW_ON_ERROR)),
+            new Response(200, [], json_encode(['token' => 'tok-remote'], JSON_THROW_ON_ERROR)),
+            $this->messageResponse(111),
+        ]);
+
+        $sender->send(
+            new Recipient(chatId: 111, userId: 222),
+            'Remote media',
+            [
+                ['upload_type' => 'video', 'path' => 'broadcasts/clip.mp4'],
+            ],
+            News::News,
+        );
+
+        $body = $this->decodeBody($http);
+
+        $attachments = $this->attachments($body);
+        self::assertCount(1, $attachments);
+        self::assertSame('video', $attachments[0]['type'] ?? null);
+        self::assertSame('tok-remote', $attachments[0]['payload']['token'] ?? null);
+        self::assertSame(1, $disk->readStreamCalls);
+    }
+
+    public function testDownloadsRemoteAttachmentOnceForAllRecipients(): void
+    {
+        $disk = new RemoteDisk(['broadcasts/shared-clip.mp4' => 'shared-bytes']);
+
+        Storage::set('remote-shared', $disk);
+        config()->set('filament-max-broadcasts.image.disk', 'remote-shared');
+
+        [$http, $sender] = $this->makeSender([
+            new Response(200, [], json_encode(['url' => 'https://upload.example/first', 'token' => 's'], JSON_THROW_ON_ERROR)),
+            new Response(200, [], json_encode(['token' => 'tok-first'], JSON_THROW_ON_ERROR)),
+            $this->messageResponse(111),
+            new Response(200, [], json_encode(['url' => 'https://upload.example/second', 'token' => 's'], JSON_THROW_ON_ERROR)),
+            new Response(200, [], json_encode(['token' => 'tok-second'], JSON_THROW_ON_ERROR)),
+            $this->messageResponse(222),
+        ]);
+
+        $media = [['upload_type' => 'video', 'path' => 'broadcasts/shared-clip.mp4']];
+
+        $sender->send(new Recipient(chatId: 111), 'First', $media, News::News);
+        $sender->send(new Recipient(chatId: 222), 'Second', $media, News::News);
+
+        self::assertSame(1, $disk->readStreamCalls);
+
+        $temporaryFiles = glob(sys_get_temp_dir().'/max-broadcast-*-shared-clip.mp4') ?: [];
+        self::assertCount(1, $temporaryFiles);
+
+        unset($sender);
+
+        self::assertCount(0, glob(sys_get_temp_dir().'/max-broadcast-*-shared-clip.mp4') ?: []);
     }
 
     public function testCustomTypeWithConfiguredButtonsAddsInlineKeyboard(): void

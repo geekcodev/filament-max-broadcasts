@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace GeekCo\FilamentMaxBroadcasts\Services;
 
 use GeekCo\FilamentMaxBroadcasts\Contracts\BroadcastTypeContract;
+use GeekCo\FilamentMaxBroadcasts\Support\AttachmentFile;
+use GeekCo\FilamentMaxBroadcasts\Support\AttachmentStorage;
 use GeekCo\MaxPhpClient\ApiClient;
 use GeekCo\MaxPhpClient\Dto\AttachmentRequest;
 use GeekCo\MaxPhpClient\Dto\AttachmentRequest\AudioAttachmentRequest;
@@ -28,9 +30,27 @@ use Illuminate\Support\Facades\Storage;
  */
 class BroadcastSender
 {
+    /**
+     * Локальные копии вложений на время жизни отправителя: удалённый файл скачивается
+     * один раз на рассылку, а не на каждого получателя. Временные копии удаляются в
+     * деструкторе.
+     *
+     * @var array<string, AttachmentFile>
+     */
+    private array $localFiles = [];
+
     public function __construct(
         private readonly ApiClient $api,
     ) {
+    }
+
+    public function __destruct()
+    {
+        foreach ($this->localFiles as $file) {
+            $file->cleanup();
+        }
+
+        $this->localFiles = [];
     }
 
     /**
@@ -78,9 +98,15 @@ class BroadcastSender
 
     private function uploadMedia(UploadType $type, string $path): AttachmentRequest
     {
-        $disk = config()->string('filament-max-broadcasts.image.disk', 'public');
+        return $this->uploadToAttachment($type, $this->localFile($path)->path(), $path);
+    }
 
-        return $this->uploadToAttachment($type, Storage::disk($disk)->path($path), $path);
+    private function localFile(string $path): AttachmentFile
+    {
+        $disk = AttachmentStorage::disk();
+        $key = $disk.':'.$path;
+
+        return $this->localFiles[$key] ??= AttachmentFile::fromDisk(Storage::disk($disk), $path);
     }
 
     private function uploadToAttachment(UploadType $type, string $absolutePath, ?string $label = null): AttachmentRequest
@@ -106,8 +132,7 @@ class BroadcastSender
         Log::debug('MAX media upload ok', [
             'type' => $type->value,
             'path' => $label ?? $absolutePath,
-            'token' => $result->token,
-            'url' => $result->url,
+            'has_token' => $result->token !== null,
         ]);
 
         if ($type === UploadType::Image) {

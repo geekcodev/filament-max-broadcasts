@@ -54,13 +54,32 @@ return [
     ],
 
     // Вложения рассылки (картинки, видео, файлы — по несколько на рассылку).
+    // Диск может быть локальным (публичным или приватным) либо объектным хранилищем
+    // (S3 и подобные): перед отправкой файл читается с диска, для объектного хранилища —
+    // через временную локальную копию. Файлы уходят в MAX через uploadMedia и дальше
+    // отдаются серверами MAX, поэтому публичный HTTP-доступ к диску не нужен и по
+    // умолчанию выключен: диск `local` (storage/app/private), а в админке вложения
+    // показываются по временным подписанным ссылкам. Для предпросмотра на диске `local`
+    // нужен 'serve' => true в config/filesystems.php (значение по умолчанию в Laravel 11+).
     'image' => [
-        'disk'      => env('FILAMENT_MAX_BROADCASTS_IMAGE_DISK', 'public'),
+        'disk'      => env('FILAMENT_MAX_BROADCASTS_IMAGE_DISK', 'local'),
         'directory' => env('FILAMENT_MAX_BROADCASTS_IMAGE_DIRECTORY', 'broadcasts'),
         'max_kb'    => (int) env('FILAMENT_MAX_BROADCASTS_IMAGE_MAX_KB', 51200), // лимит MAX: 50 МБ = 51200 КБ
         'accepted_mime_types' => [
             'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/tiff', 'image/bmp', 'image/heic',
             'video/mp4', 'video/webm', 'video/quicktime', 'video/x-matroska',
+        ],
+        'accepted_file_types' => [
+            'application/pdf',
+            'application/msword',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'application/vnd.ms-excel',
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'application/vnd.ms-powerpoint',
+            'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+            'text/plain',
+            'text/csv',
+            'application/zip',
         ],
     ],
 

@@ -39,7 +39,7 @@ class HandleConsentCallback
     {
         $update = $event->update;
 
-        if (!$update instanceof MessageCallbackUpdate) {
+        if (! $update instanceof MessageCallbackUpdate) {
             return;
         }
 
