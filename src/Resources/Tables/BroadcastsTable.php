@@ -13,7 +13,6 @@ use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use GeekCo\FilamentMaxBroadcasts\Enums\BroadcastStatus;
 use GeekCo\FilamentMaxBroadcasts\Models\Broadcast;
-use GeekCo\FilamentMaxBroadcasts\Models\BroadcastAttachment;
 use GeekCo\FilamentMaxBroadcasts\Services\BroadcastService;
 use GeekCo\FilamentMaxBroadcasts\Support\BroadcastTypes;
 use InvalidArgumentException;
@@ -86,26 +85,8 @@ class BroadcastsTable
                     ->modalSubmitActionLabel(__('filament-max-broadcasts::broadcasts.actions.repeat_submit'))
                     ->authorize($managePermission)
                     ->action(function (Broadcast $record): void {
-                        $user = auth()->user();
-
-                        /** @var list<array{upload_type: string, path: string}> $attachments */
-                        $attachments = $record->attachments->map(
-                            static fn (BroadcastAttachment $attachment): array => [
-                                'upload_type' => $attachment->upload_type->value,
-                                'path' => $attachment->path,
-                            ],
-                        )->all();
-
                         try {
-                            app(BroadcastService::class)->create(
-                                text: $record->text,
-                                scheduledAt: null,
-                                creator: $user,
-                                attachments: $attachments,
-                                type: $record->type,
-                                chatIds: $record->recipient_chat_ids,
-                                segments: array_values($record->segments->all()),
-                            );
+                            app(BroadcastService::class)->repeat($record, auth()->user());
                         } catch (InvalidArgumentException) {
                             Notification::make()
                                 ->title(__('filament-max-broadcasts::broadcasts.notifications.repeat_empty'))

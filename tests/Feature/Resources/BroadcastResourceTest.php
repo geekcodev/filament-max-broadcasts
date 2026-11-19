@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace GeekCo\FilamentMaxBroadcasts\Tests\Feature\Resources;
 
 use Filament\Forms\Components\FileUpload;
+use GeekCo\FilamentMaxBroadcasts\Enums\BroadcastRecipientStatus;
 use GeekCo\FilamentMaxBroadcasts\Enums\BroadcastStatus;
 use GeekCo\FilamentMaxBroadcasts\Jobs\SendBroadcastJob;
 use GeekCo\FilamentMaxBroadcasts\Models\Broadcast;
@@ -14,6 +15,7 @@ use GeekCo\FilamentMaxBroadcasts\Resources\BroadcastResource;
 use GeekCo\FilamentMaxBroadcasts\Resources\Pages\CreateBroadcast;
 use GeekCo\FilamentMaxBroadcasts\Resources\Pages\ListBroadcasts;
 use GeekCo\FilamentMaxBroadcasts\Resources\Pages\ViewBroadcast;
+use GeekCo\FilamentMaxBroadcasts\Services\ConsentService;
 use GeekCo\FilamentMaxBroadcasts\Tests\Fixtures\TestUser;
 use GeekCo\FilamentMaxBroadcasts\Tests\Fixtures\Chats;
 use GeekCo\FilamentMaxBroadcasts\Tests\TestCase;
@@ -53,6 +55,7 @@ class BroadcastResourceTest extends TestCase
     {
         return Chats::create(11, 1, [
             'status' => MaxChatStatus::Active,
+            'chat_type' => ChatType::Chat,
         ]);
     }
 
@@ -391,6 +394,38 @@ class BroadcastResourceTest extends TestCase
         Queue::assertPushed(SendBroadcastJob::class);
     }
 
+    public function testRepeatActionRespectsFreshOptOut(): void
+    {
+        Chats::create(11, 1, ['status' => MaxChatStatus::Active, 'chat_type' => ChatType::Dialog]);
+        Chats::create(22, 2, ['status' => MaxChatStatus::Active, 'chat_type' => ChatType::Dialog]);
+
+        $segment = BroadcastSegment::query()->create(['name' => 'VIP', 'chat_ids' => [11, 22]]);
+        $consent = app(ConsentService::class);
+        $consent->optIn(11, 1, $segment->id);
+        $consent->optIn(22, 2, $segment->id);
+
+        $original = $this->broadcast(BroadcastStatus::Completed, ['recipient_chat_ids' => [11, 22]]);
+        $original->segments()->attach($segment->id);
+        $original->recipients()->createMany([
+            ['user_id' => 1, 'chat_id' => 11, 'status' => BroadcastRecipientStatus::Sent],
+            ['user_id' => 2, 'chat_id' => 22, 'status' => BroadcastRecipientStatus::Sent],
+        ]);
+
+        $consent->optOut(11, 1, $segment->id);
+
+        $this->actingAs($this->adminUser());
+
+        Livewire::test(ListBroadcasts::class)
+            ->callTableAction('repeat', $original);
+
+        /** @var Broadcast $repeated */
+        $repeated = Broadcast::query()->latest('id')->firstOrFail();
+
+        self::assertSame([22], $repeated->recipients->pluck('chat_id')->all());
+        self::assertSame([22], $repeated->recipient_chat_ids);
+        self::assertSame([$segment->id], $repeated->segments->pluck('id')->all());
+    }
+
     public function testRepeatWithoutRecipientsIsRejected(): void
     {
         $original = $this->broadcast(BroadcastStatus::Completed);
@@ -432,6 +467,9 @@ class BroadcastResourceTest extends TestCase
             'name' => 'VIP',
             'chat_ids' => [11],
         ]);
+        /** @var int $segmentId */
+        $segmentId = $segment->getKey();
+        app(ConsentService::class)->optIn(11, 1, $segmentId);
 
         Livewire::test(CreateBroadcast::class)
             ->fillForm([

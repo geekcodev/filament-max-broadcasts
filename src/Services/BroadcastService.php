@@ -9,6 +9,7 @@ use GeekCo\FilamentMaxBroadcasts\Enums\BroadcastStatus;
 use GeekCo\FilamentMaxBroadcasts\Enums\BroadcastTypes\News;
 use GeekCo\FilamentMaxBroadcasts\Jobs\SendBroadcastJob;
 use GeekCo\FilamentMaxBroadcasts\Models\Broadcast;
+use GeekCo\FilamentMaxBroadcasts\Models\BroadcastAttachment;
 use GeekCo\FilamentMaxBroadcasts\Models\BroadcastSegment;
 use GeekCo\FilamentMaxBroadcasts\Support\BroadcastTypes;
 use GeekCo\FilamentMaxBroadcasts\Support\ChatRegistry;
@@ -25,6 +26,7 @@ class BroadcastService
     public function __construct(
         private readonly BroadcastTextSanitizer $sanitizer,
         private readonly BroadcastRecipientsResolver $resolver,
+        private readonly ?ConsentService $consent = null,
     ) {
     }
 
@@ -54,6 +56,10 @@ class BroadcastService
 
         $chats = $this->resolveChats($chatIds, $segments);
 
+        if ($chats->isEmpty()) {
+            throw new InvalidArgumentException('Broadcast has no active recipients.');
+        }
+
         $isFuture = $scheduledAt !== null && $scheduledAt->isFuture();
 
         $broadcast = DB::transaction(function () use (
@@ -74,7 +80,14 @@ class BroadcastService
                 'status' => $isFuture ? BroadcastStatus::Scheduled : BroadcastStatus::Running,
                 'total_recipients' => $chats->count(),
                 'created_by' => $creator?->getKey(),
-                'recipient_chat_ids' => $chatIds === null || $chatIds === [] ? null : $chatIds,
+                'recipient_chat_ids' => $chatIds === null || $chatIds === [] ? null : $chats->map(
+                    static function (MaxChat $chat): int {
+                        /** @var int $chatId */
+                        $chatId = $chat->getAttribute('chat_id');
+
+                        return $chatId;
+                    },
+                )->values()->all(),
             ]);
 
             if ($segments !== []) {
@@ -122,10 +135,11 @@ class BroadcastService
     /**
      * Резолвим конкретный список получателей для рассылки.
      *
-     * Приоритет:
-     * 1. Явно переданные chatIds — фильтруем по ним.
-     * 2. Иначе, если заданы сегменты — берём объединение их chat_ids.
-     * 3. Иначе — все активные чаты (дефолт).
+     * Диалоги приходят только из сегментов (согласившиеся, opt_in); вручную выбираются только
+     * группы и каналы. Явный диалог в chatIds игнорируется.
+     *
+     * 1. С сегментами — объединение согласившихся диалогов и выбранных вручную групп/каналов.
+     * 2. Без сегментов — только выбранные вручную группы/каналы.
      *
      * @param  list<int>|null  $chatIds
      * @param  list<BroadcastSegment>  $segments
@@ -134,29 +148,131 @@ class BroadcastService
      */
     private function resolveChats(?array $chatIds, array $segments): \Illuminate\Support\Collection
     {
-        $resolved = $this->resolver->resolve();
+        if ($segments !== []) {
+            $consented = $this->consentedChatIds($segments);
+            $manual = $chatIds === null ? [] : array_map('intval', $chatIds);
+            $resolved = $this->resolver->resolveForChatIds(
+                array_values(array_unique([...$consented, ...$manual])),
+            );
+
+            $ids = array_values(array_unique([
+                ...$this->dialogIds($resolved, $consented),
+                ...$this->nonDialogIds($resolved, $manual),
+            ]));
+
+            return $this->filterByChatIds($resolved, $ids)->values();
+        }
 
         if ($chatIds !== null && $chatIds !== []) {
-            $ids = array_map('intval', $chatIds);
+            $resolved = $this->resolver->resolveForChatIds(array_map('intval', $chatIds));
 
-            return $this->filterByChatIds($resolved, $ids);
+            return $this->filterByChatIds($resolved, $this->nonDialogIds($resolved, $chatIds));
         }
 
-        if ($segments !== []) {
-            $ids = [];
+        // Недостижимо: create() требует сегменты или chatIds. Возвращаем пусто,
+        // чтобы будущая ошибка не превратилась в рассылку всем активным чатам.
+        return new \Illuminate\Support\Collection();
+    }
 
-            foreach ($segments as $segment) {
-                $ids = [...$ids, ...array_map('intval', $segment->chat_ids ?? [])];
-            }
+    /**
+     * Идентификаторы диалогов из списка (согласия по сегментам относятся только к диалогам).
+     *
+     * @param  \Illuminate\Support\Collection<int, MaxChat>  $chats
+     * @param  list<int>  $ids
+     * @return list<int>
+     */
+    private function dialogIds(\Illuminate\Support\Collection $chats, array $ids): array
+    {
+        $wanted = array_flip($ids);
 
-            $ids = array_values(array_unique($ids));
+        return array_values(array_unique(array_map(
+            static function (MaxChat $chat): int {
+                /** @var int $chatId */
+                $chatId = $chat->getAttribute('chat_id');
 
-            return $this->filterByChatIds($resolved, $ids)
-                ->filter(static fn (MaxChat $chat): bool => ChatRegistry::chatType($chat) === ChatType::Dialog->value)
-                ->values();
+                return $chatId;
+            },
+            $chats
+                ->filter(static function (MaxChat $chat) use ($wanted): bool {
+                    /** @var int $chatId */
+                    $chatId = $chat->getAttribute('chat_id');
+
+                    return isset($wanted[$chatId])
+                        && ChatRegistry::chatType($chat) === ChatType::Dialog->value;
+                })
+                ->all(),
+        )));
+    }
+
+    /**
+     * Идентификаторы групп и каналов из явного списка (диалоги отбрасываются).
+     *
+     * @param  \Illuminate\Support\Collection<int, MaxChat>  $chats
+     * @param  list<int>|null  $chatIds
+     * @return list<int>
+     */
+    private function nonDialogIds(\Illuminate\Support\Collection $chats, ?array $chatIds): array
+    {
+        if ($chatIds === null || $chatIds === []) {
+            return [];
         }
 
-        return $resolved;
+        $ids = array_map('intval', $chatIds);
+
+        return array_values(array_unique(array_map(
+            static function (MaxChat $chat): int {
+                /** @var int $chatId */
+                $chatId = $chat->getAttribute('chat_id');
+
+                return $chatId;
+            },
+            $chats
+                ->filter(static function (MaxChat $chat) use ($ids): bool {
+                    /** @var int $chatId */
+                    $chatId = $chat->getAttribute('chat_id');
+                    $type = ChatRegistry::chatType($chat);
+
+                    return in_array($chatId, $ids, true)
+                        && in_array($type, [ChatType::Chat->value, ChatType::Channel->value], true);
+                })
+                ->all(),
+        )));
+    }
+
+    private function consentService(): ConsentService
+    {
+        return $this->consent ?? new ConsentService();
+    }
+
+    /**
+     * Объединение согласившихся (opt_in) чатов выбранных сегментов.
+     *
+     * @param  list<BroadcastSegment>  $segments
+     * @return list<int>
+     */
+    private function consentedChatIds(array $segments): array
+    {
+        if ($segments === []) {
+            return [];
+        }
+
+        $segmentIds = array_map(
+            static function (BroadcastSegment $segment): int {
+                /** @var int $id */
+                $id = $segment->getKey();
+
+                return $id;
+            },
+            $segments,
+        );
+
+        $ids = [];
+
+        foreach ($this->consentService()->optedInChatIdsBySegment($segmentIds) as $chatIds) {
+            $ids = [...$ids, ...$chatIds];
+        }
+
+        return array_values(array_unique($ids));
     }
 
     /**
@@ -204,5 +320,38 @@ class BroadcastService
         if ($broadcast->scheduled_at !== null && $broadcast->scheduled_at->isFuture()) {
             $pendingDispatch->delay($broadcast->scheduled_at);
         }
+    }
+
+    /**
+     * Повтор рассылки тем же людям с учётом свежих согласий.
+     *
+     * Снимок получателей передаётся как есть, а резолв применяет актуальные правила:
+     * диалоги — только согласившиеся в текущих сегментах (свежие отказы исключаются),
+     * группы и каналы из снимка сохраняются. Если снимка нет, получатели резолвятся
+     * по сегментам заново.
+     *
+     * @throws InvalidArgumentException когда после фильтра не осталось получателей
+     */
+    public function repeat(Broadcast $broadcast, ?Model $creator = null): Broadcast
+    {
+        $attachments = array_values($broadcast->attachments->map(
+            static fn (BroadcastAttachment $attachment): array => [
+                'upload_type' => $attachment->upload_type->value,
+                'path' => $attachment->path,
+            ],
+        )->all());
+
+        /** @var list<BroadcastSegment> $segments */
+        $segments = array_values($broadcast->segments->all());
+
+        return $this->create(
+            text: $broadcast->text,
+            scheduledAt: null,
+            creator: $creator,
+            attachments: $attachments,
+            type: $broadcast->type,
+            chatIds: $broadcast->recipient_chat_ids,
+            segments: $segments,
+        );
     }
 }

@@ -8,8 +8,8 @@ use GeekCo\FilamentMaxBroadcasts\Models\BroadcastSegment;
 use GeekCo\FilamentMaxBroadcasts\Services\BroadcastSegmentRecipients;
 
 /**
- * Варианты селекта сегментов при создании рассылки: только сегменты с получателями,
- * в подписи — название и бейдж числа получателей (активные диалоги).
+ * Варианты селекта сегментов при создании рассылки: только сегменты с согласившимися получателями,
+ * в подписи — название и бейдж числа получателей (активные диалоги с opt_in).
  */
 class BroadcastSegmentOptions
 {
@@ -20,7 +20,7 @@ class BroadcastSegmentOptions
     {
         $segments = BroadcastSegment::query()->orderBy('name')->get();
 
-        $counts = (new BroadcastSegmentRecipients())->dialogCounts($segments);
+        $counts = (new BroadcastSegmentRecipients())->consentedCounts($segments);
 
         $options = [];
 

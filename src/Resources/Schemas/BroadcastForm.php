@@ -17,12 +17,11 @@ use Filament\Schemas\Schema;
 use GeekCo\FilamentMaxBroadcasts\Enums\BroadcastTypes\News;
 use GeekCo\FilamentMaxBroadcasts\Models\Broadcast;
 use GeekCo\FilamentMaxBroadcasts\Models\BroadcastAttachment;
-use GeekCo\FilamentMaxBroadcasts\Models\BroadcastSegment;
-use GeekCo\FilamentMaxBroadcasts\Services\BroadcastSegmentRecipients;
 use GeekCo\FilamentMaxBroadcasts\Support\AttachmentStorage;
 use GeekCo\FilamentMaxBroadcasts\Support\BroadcastSegmentOptions;
 use GeekCo\FilamentMaxBroadcasts\Support\BroadcastTypes;
 use GeekCo\FilamentMaxBroadcasts\Support\ChatSelectionField;
+use GeekCo\FilamentMaxBroadcasts\Support\SegmentConsentRule;
 use GeekCo\MaxPhpClient\Enum\UploadType;
 
 class BroadcastForm
@@ -133,26 +132,14 @@ class BroadcastForm
                             ->multiple()
                             ->helperText(__('filament-max-broadcasts::broadcasts.form.segments_helper'))
                             ->requiredWithout('recipient_chat_ids')
-                            ->live()
-                            ->afterStateUpdated(static function (callable $set, ?array $state): void {
-                                if ($state === null || $state === []) {
-                                    return;
-                                }
-
-                                $recipients = new BroadcastSegmentRecipients();
-                                $chatIds = [];
-
-                                foreach (BroadcastSegment::query()->whereIn('id', $state)->get() as $segment) {
-                                    $chatIds = [...$chatIds, ...$recipients->dialogChatIds($segment)];
-                                }
-
-                                $set('recipient_chat_ids', array_values(array_unique($chatIds)));
-                            })
+                            ->rule(new SegmentConsentRule())
                             ->columnSpanFull(),
                         ChatSelectionField::make(
                             'recipient_chat_ids',
                             __('filament-max-broadcasts::broadcasts.form.recipients'),
                             helperText: __('filament-max-broadcasts::broadcasts.form.recipients_helper'),
+                            nonDialogsOnly: true,
+                            withSelectAll: false,
                         )->requiredWithout('segment_ids'),
                     ]),
                 Section::make(__('filament-max-broadcasts::broadcasts.form.attachments_section'))
@@ -275,4 +262,5 @@ class BroadcastForm
 
         return $path === null ? null : AttachmentStorage::url($path);
     }
+
 }

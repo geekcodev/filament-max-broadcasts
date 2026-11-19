@@ -7,17 +7,14 @@ namespace GeekCo\FilamentMaxBroadcasts\Services;
 use GeekCo\FilamentMaxBroadcasts\Enums\BroadcastConsentAction;
 use GeekCo\FilamentMaxBroadcasts\Models\BroadcastConsent;
 use GeekCo\FilamentMaxBroadcasts\Models\BroadcastSegment;
-use Illuminate\Support\Facades\DB;
 
 /**
  * Единая точка изменения согласий и записи фактов opt-in/opt-out.
  *
- * Согласие привязано к сегменту, из которого был запрошен: слушатель
- * HandleConsentCallback складывает chat_id согласившихся в сегмент из payload кнопки
- * (payload без сегмента больше не принимается). Необязательный segmentId сохранён для
- * обратной совместимости: без него метод работает со стартовым сегментом
- * «Новости и акции» (config consent.segment_name). Таблица max_broadcast_consents
- * хранит последний факт (action) по паре segment+chat.
+ * Согласие — это факт по паре (сегмент, чат) в max_broadcast_consents. Состав сегмента
+ * (chat_ids) задаётся вручную и ответами не меняется: сегмент — это аудитория, которую
+ * опрашивают, а рассылка по сегменту уходит только тем, кто ответил opt_in. Поэтому
+ * список согласившихся вычисляется из таблицы согласий, а не хранится в самом сегменте.
  */
 class ConsentService
 {
@@ -78,14 +75,72 @@ class ConsentService
      */
     public function consentChatIds(): array
     {
-        return $this->resolveConsentSegment()->chat_ids ?? [];
+        return $this->optedInChatIds();
     }
 
     /**
-     * chat_id всех, кто ответил на запрос (opt_in или opt_out) в сегменте.
+     * chat_id всех, кто согласился (opt_in) в сегменте. Источник аудитории рассылки.
      *
-     * Источник дедупа для повторного запроса: ответившие в этом сегменте запрос больше
-     * не получают, проигнорировавшие — получают. Записи других сегментов не участвуют.
+     * @return list<int>
+     */
+    public function optedInChatIds(?int $segmentId = null): array
+    {
+        $segment = $this->findSegment($segmentId);
+
+        if ($segment === null) {
+            return [];
+        }
+
+        $modelClass = $this->consentModel;
+
+        return array_values($modelClass::query()
+            ->where('segment_id', $segment->getKey())
+            ->where('action', BroadcastConsentAction::OptIn->value)
+            ->pluck('chat_id')
+            ->map(static fn (mixed $chatId): int => is_scalar($chatId) ? (int) $chatId : 0)
+            ->all());
+    }
+
+    /**
+     * chat_id согласившихся (opt_in) по нескольким сегментам одним запросом.
+     *
+     * @param  list<int>  $segmentIds
+     * @return array<int, list<int>> segment id => chat_id
+     */
+    public function optedInChatIdsBySegment(array $segmentIds): array
+    {
+        if ($segmentIds === []) {
+            return [];
+        }
+
+        $modelClass = $this->consentModel;
+
+        $rows = $modelClass::query()
+            ->whereIn('segment_id', $segmentIds)
+            ->where('action', BroadcastConsentAction::OptIn->value)
+            ->get(['segment_id', 'chat_id']);
+
+        $map = [];
+
+        foreach ($rows as $row) {
+            $segmentId = $row->getAttribute('segment_id');
+            $chatId = $row->getAttribute('chat_id');
+
+            if (! is_scalar($segmentId) || ! is_scalar($chatId)) {
+                continue;
+            }
+
+            $map[(int) $segmentId][] = (int) $chatId;
+        }
+
+        return $map;
+    }
+
+    /**
+     * chat_id всех, кто ответил (opt_in или opt_out) в сегменте.
+     *
+     * Источник дедупа для повторного запроса: ответившие запрос больше не получают,
+     * проигнорировавшие — получают. Записи других сегментов не участвуют.
      *
      * @return list<int>
      */
@@ -101,8 +156,8 @@ class ConsentService
 
         return array_values($modelClass::query()
             ->where('segment_id', $segment->getKey())
-            ->get()
-            ->map(static fn (BroadcastConsent $consent): int => $consent->chat_id)
+            ->pluck('chat_id')
+            ->map(static fn (mixed $chatId): int => is_scalar($chatId) ? (int) $chatId : 0)
             ->all());
     }
 
@@ -116,26 +171,9 @@ class ConsentService
 
         $modelClass = $this->consentModel;
 
-        DB::transaction(function () use ($modelClass, $segment, $chatId, $userId, $action): void {
-            $modelClass::query()
-                ->updateOrCreate(
-                    ['segment_id' => $segment->getKey(), 'chat_id' => $chatId],
-                    ['user_id' => $userId, 'action' => $action, 'source' => 'callback'],
-                );
-
-            // chat_ids сегмента — производное от таблицы согласий (opt-in): пересчитываем
-            // в той же транзакции вместо read-modify-write, чтобы параллельные callback'и
-            // не теряли запись (lost update) и список самовосстанавливался.
-            $chatIds = array_values(
-                $modelClass::query()
-                    ->where('segment_id', $segment->getKey())
-                    ->where('action', BroadcastConsentAction::OptIn->value)
-                    ->get()
-                    ->map(static fn (BroadcastConsent $consent): int => $consent->chat_id)
-                    ->all(),
-            );
-
-            $segment->update(['chat_ids' => $chatIds]);
-        });
+        $modelClass::query()->updateOrCreate(
+            ['segment_id' => $segment->getKey(), 'chat_id' => $chatId],
+            ['user_id' => $userId, 'action' => $action, 'source' => 'callback'],
+        );
     }
 }

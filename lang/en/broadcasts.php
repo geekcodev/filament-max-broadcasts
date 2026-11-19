@@ -37,14 +37,14 @@ return [
     ],
 
     'chat_types' => [
-    'chat_selection' => [
-        'select_all' => 'Select all',
-    ],
-
         'dialog' => 'Dialog',
         'chat' => 'Group',
         'channel' => 'Channel',
         'unknown' => 'Chat',
+    ],
+
+    'chat_selection' => [
+        'select_all' => 'Select all',
     ],
 
     'resource' => [
@@ -71,9 +71,10 @@ return [
         'recipients_section_description' => 'Pick segments or tick chats manually. At least one of the two fields is required.',
         'segments' => 'Recipient segments',
         'segment_default' => 'Pick segments',
-        'segments_helper' => 'Only segments with recipients are shown; the badge shows the number of active dialogs. Picking segments fills the recipient list, which you can adjust.',
+        'segments_helper' => 'Only segments with consented recipients are shown; the badge shows their number. Picking a segment fills the recipient list with those who agreed; you can adjust it manually.',
+        'segments_no_consent' => 'The selected segments have no recipients who consented. Request consent or remove the segments.',
         'recipients' => 'Recipients',
-        'recipients_helper' => 'Tick the chats to send to. Dialogs, groups and channels are all allowed.',
+        'recipients_helper' => 'Groups and channels for manual selection. Dialogs come only from the selected segments — from recipients who consented.',
         'attachments_section' => 'Attachments',
         'attachments' => 'Attached files',
         'attachment_item' => 'Attachment',
@@ -114,7 +115,7 @@ return [
         'repeat_submit' => 'Repeat',
         'request_consent' => 'Request consent',
         'request_consent_heading' => 'Send the consent request?',
-        'request_consent_description' => 'The request “Do you agree to receive the mailing “segment name”?” will be sent to all active dialogs that have not replied to this segment yet. Those who already replied to it will not receive it again.',
+        'request_consent_description' => 'The request “Do you agree to receive the mailing “segment name”?” will be sent to this segment’s dialogs that have not replied yet. Those who replied (agree or decline) will not receive it again.',
         'request_consent_submit' => 'Send',
         'delete' => 'Delete',
         'send_now' => 'Send now',

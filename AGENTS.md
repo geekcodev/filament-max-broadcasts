@@ -12,13 +12,15 @@
   `max_chats`/`max_users`, вебхук-доставка апдейтов) и ядра `geekcodev/max-php-client` (Bot API MAX).
   Репозиторий/рабочая папка — `filament-max-broadcasts`, переиспользуемый автономный пакет.
 - **Что даёт.** Filament-ресурс «Рассылки» (`BroadcastResource`): создание (текст HTML, тип «Новость/Акция»,
-  медиавложения — картинки/видео/файлы, отложенная отправка), выбор получателей — несколько сегментов и/или конкретные
-  чаты (снимок `recipient_chat_ids`, повтор тем же людям), отправка через MAX API с санитизацией HTML и настраиваемыми
-  кнопками-диплинками, статусы `scheduled → running → completed/cancelled/failed` со счётчиками, очередь
+  медиавложения — картинки/видео/файлы, отложенная отправка), выбор получателей — сегменты (согласившиеся диалоги)
+  и/или группы и каналы (снимок `recipient_chat_ids`, повтор тем же людям с учётом свежих отказов), отправка через MAX
+  API с санитизацией HTML и настраиваемыми кнопками-диплинками, статусы
+  `scheduled → running → completed/cancelled/failed` со счётчиками, очередь
   `SendBroadcastJob` с локом/батчами/ретраями/отменой, страницы список/создание/просмотр и relation manager получателей.
   Плюс два смежных модуля: сегменты получателей (`BroadcastSegmentResource` — именованные группы чатов)
-  и opt-in согласие на рассылку (callback-кнопки MAX, сегмент «Новости и акции», действие «Запросить согласие» на списке
-  рассылок) с журналом согласий `BroadcastConsentResource`.
+  и opt-in согласие на рассылку (callback-кнопки MAX, сегмент «Новости и акции», действие «Запросить согласие» на
+  странице и в таблице сегментов) с журналом согласий `BroadcastConsentResource`. Сегмент — вручную заданная аудитория:
+  запрос уходит его получателям без ответа, а рассылка по сегменту — только ответившим «Да».
 - **Принцип.** Плагин самодостаточен для рассылок: модели `Broadcast`/`BroadcastRecipient`, сервисы, job и Filament-
   ресурс живут внутри пакета. От хост-приложения он ожидает только: опубликованные миграции laravel-max-client
   (`max_chats`/`max_users`), рабочую очередь и настройку прав. Механизмы laravel-max-client не дублируются — используем
@@ -85,7 +87,7 @@ MAX). Пока теги `v2.0.0` не выпущены, ветка `new` ста�
 - **Соответствие формулировки запроса и ответа** (не додумывай за пользователя):
 
   | Запрос пользователя | Что делаешь                                                                                |
-            |--------------------|--------------------------------------------------------------------------------------------|
+              |--------------------|--------------------------------------------------------------------------------------------|
   | «краткий текст коммита», «напиши коммит-сообщение», «subject» | Одна строка — head, без body, по Conventional Commits, по всем изменениям ветки. Коммит не создаёшь |
   | «текст коммита» без уточнений | То же самое: краткий head без body                                                               |
   | «полный текст коммита», «с body» | Head + body с переносами по 100 символов                                                        |
@@ -205,9 +207,11 @@ src/
     SendConsentRequestsJob.php         очередь запроса согласия: лок, пере-резолв кандидатов, батчи
   Listeners/HandleConsentCallback.php  приём callback-ответов согласия (MaxUpdateReceived) + ответ answerCallback
   Services/
-    BroadcastService.php               create(): резолв получателей (chatIds → сегменты, только диалоги) + dispatch
+    BroadcastService.php               create(): резолв получателей (сегменты → opt_in-диалоги,
+                                      chatIds → группы/каналы) + dispatch
     BroadcastTextSanitizer.php         санитизация HTML под whitelist тегов MAX + toMaxHtml()
-    BroadcastRecipientsResolver.php    источник MaxChat (активные чаты, дедуп по chat_id) — расширяемый
+    BroadcastRecipientsResolver.php    источник MaxChat (активные чаты, дедуп по chat_id, resolveForChatIds по id) —
+                                      расширяемый
     BroadcastSender.php                отправка в MAX: текст/медиавложения/кнопки-диплинки (uploadMedia + sendMessage)
     ConsentService.php                 единая точка согласий: optIn/optOut/answeredChatIds, сегмент «Новости и акции»
     ConsentRequestService.php          кандидаты запроса согласия по сегменту (активные диалоги без ответа) + dispatch джобы
@@ -215,7 +219,8 @@ src/
   Support/
     BroadcastTypes.php                 реестр типов из конфига (instance/contains/options/label/badgeColor)
     BroadcastTypeDefaults.php          трейт дефолтного поведения типов (lang-подпись, кнопки из per_type)
-    ChatSelectionField.php             мультивыбор чатов: серверный поиск (лимит 50), «Выбрать всех», dialogsOnly для сегментов
+    ChatSelectionField.php             мультивыбор чатов: серверный поиск (лимит 50), области dialogsOnly /
+                                      nonDialogsOnly, вариант «Выбрать всех» (служебное значение + dehydrate)
     BroadcastSegmentOptions.php        варианты селекта сегментов: только с получателями, бейдж числа получателей
     DialogsOnlyRule.php                серверная проверка: в сегмент только диалоги
     ChatRegistry.php                   единственный адаптер к реестру чатов: форма 1.1.x против 1.2 (связи, user_id,
@@ -223,6 +228,7 @@ src/
     AttachmentStorage.php             диск вложений и ссылки на них: публичный URL или временная подписанная ссылка
     AttachmentFile.php                локальный файл для uploadMedia: путь с локального диска или временная копия
                                       из объектного хранилища с очисткой после отправки
+    SegmentConsentRule.php            серверная проверка: у выбранных сегментов есть согласившиеся получатели
   Resources/
     BroadcastResource.php              Filament-ресурс «Рассылки»
     BroadcastSegmentResource.php       Filament-ресурс «Сегменты» (список/создание/просмотр/редактирование)
@@ -323,17 +329,27 @@ Filament-компонентах. `composer.lock`, `.phpunit.cache/`, `.phpstan-c
   `->segmentResource()` / `->consentResource()`). Права (строки, `$user->can(...)`, совместимо с
   spatie/laravel-permission и Gate): `permissions.view` (`broadcasts.view`), `permissions.create` (`broadcasts.create`),
   `permissions.manage` (`broadcasts.manage`).
-- **Источник чатов**: `BroadcastRecipientsResolver` — источник списка `MaxChat` для рассылки (активные чаты, дедуп по
-  `chat_id`, сортировка по `last_activity_at`). Модель чата — `config('filament-max-broadcasts.chats_model')`
-  (по умолчанию пакетный `GeekCo\LaravelMaxClient\Models\MaxChat`), статус — `MaxChatStatus::Active`. Дедуп обязателен и
-  на форме реестра 1.1.x, где строка на пару (пользователь, чат), и на 1.2.0, где строка на чат.
-- **Получатели**: `BroadcastService::create(..., ?array $chatIds = null, array $segments = [])`. Приоритет резолва:
-  явные `chatIds` (любые типы чатов) → объединение `chat_ids` выбранных сегментов, только чаты типа `dialog` → иначе
-  `InvalidArgumentException`: рассылка без сегментов и без получателей не создаётся (пустой выбор больше не означает
-  «всем активным»). Снимок фактических получателей хранится в `recipient_chat_ids` рассылки (nullable) — источник истины
-  для повтора; выбранные сегменты привязываются через pivot `max_broadcast_segment` (история выбора). В UI — мультивыбор
-  сегментов (`Select multiple`) + ручная корректировка поиском активных чатов (серверно, только найденные); «Повторить»
-  передаёт и сегменты, и снимок.
+- **Источник чатов**: `BroadcastRecipientsResolver` — источник списка `MaxChat` для рассылки и опроса согласия (активные
+  чаты, дедуп по `chat_id`, сортировка по `last_activity_at`). Точечная выборка идёт через
+  `resolveForChatIds(list<int>)`: штатный резолвер читает только запрошенные id и подгружает пользователей
+  (`ChatRegistry::withUsers`), а подкласс с переопределённым `resolve()` по умолчанию получает безопасный путь через
+  свой
+  `resolve()` — правила хоста не теряются. Если подкласс не меняет правила, ему достаточно оставить
+  `supportsScopedResolution()` как есть. Модель чата — `config('filament-max-broadcasts.chats_model')` (по умолчанию
+  пакетный `GeekCo\LaravelMaxClient\Models\MaxChat`), статус — `MaxChatStatus::Active`. Дедуп обязателен и на форме
+  реестра 1.1.x, где строка на пару (пользователь, чат), и на 1.2.0, где строка на чат.
+- **Получатели**: `BroadcastService::create(..., ?array $chatIds = null, array $segments = [])`. Диалоги приходят только
+  из сегментов (согласившиеся, `opt_in`), вручную выбираются только группы и каналы; явный диалог в `chatIds`
+  игнорируется. Резолв: 1) с сегментами — согласившиеся диалоги ∪ выбранные вручную группы/каналы; 2) без сегментов —
+  только группы/каналы из `chatIds`; 3) пустой резолв — `InvalidArgumentException` (рассылка без получателей не
+  создаётся). Снимок фактических получателей (уже отфильтрованных и активных) хранится в `recipient_chat_ids`
+  (nullable) — источник истины для повтора; выбранные сегменты привязываются через pivot `max_broadcast_segment`
+  (история выбора). В UI — мультивыбор сегментов (`Select multiple`, только сегменты с согласившимися) и селект
+  получателей только по группам/каналам без «Выбрать всех». Повтор делает `BroadcastService::repeat()`: снимок
+  передаётся в тот же резолв, поэтому диалоги фильтруются по свежим
+  `opt_in`, а группы и каналы сохраняются; без снимка — резолв по сегментам; пустой результат —
+  `InvalidArgumentException`
+  (UI показывает «некого повторять»).
 - **Создание рассылки**: `BroadcastService::create(text, scheduledAt, creator, attachments, type, chatIds, segments)` —
   резолвит получателей, сохраняет `Broadcast` + вложения (`attachments`, `list<array{upload_type, path}>`) +
   `BroadcastRecipient`s, `segments()->sync()`, `dispatch()` через `SendBroadcastJob` (с `delay()` при будущем
@@ -368,17 +384,19 @@ Filament-компонентах. `composer.lock`, `.phpunit.cache/`, `.phpstan-c
   `image.max_kb`.
 - **Согласие (opt-in)**: действие `Resources\Actions\RequestConsentAction` «Запросить согласие» на странице сегмента и в
   строке таблицы сегментов (под `permissions.create`; на списке рассылок его нет) → `ConsentRequestService::sendRequest(
-  BroadcastSegment)`: кандидаты — активные диалоги реестра без записи в `max_broadcast_consents` для этого сегмента,
-  `SendConsentRequestsJob($segmentId)` (лок `consent:send-request:{segmentId}`, батчи) шлёт сообщение «Вы согласны
-  получать рассылку «название»?» (`consent.request_message`, `:segment`) с кнопками «Да»/«Нет»
+  BroadcastSegment)`: кандидаты — активные диалоги из `chat_ids` самого сегмента без записи в `max_broadcast_consents`
+  для этого сегмента, `SendConsentRequestsJob($segmentId)` (лок `consent:send-request:{segmentId}`, батчи) шлёт
+  сообщение «Вы согласны получать рассылку «название»?» (`consent.request_message`, `:segment`) с кнопками «Да»/«Нет»
   (`ConsentPoll::buttonRowsFor($segmentId)`, payload `consent:<segmentId>:<action>`; `BroadcastSender::send()` принимает
   кнопки явным параметром). Payload без сегмента (`consent:<action>`) не принимается: регулярное выражение требует
   сегмент, malformed и чужие callback'и игнорируются. Ответы ловит
   `HandleConsentCallback` (событие `MaxUpdateReceived`, регистрация в `FilamentMaxBroadcastsServiceProvider::boot()`),
-  через `ConsentService::optIn/optOut(chatId, userId, segmentId)` делает upsert факта и добавляет/убирает `chat_id` в
-  сегменте из payload (неизвестный сегмент — callback игнорируется), после чего удаляет исходное сообщение с опросом
-  (`ApiClient::deleteMessage`; при ошибке — fallback `editMessage` без кнопок), отвечает на нажатие
-  `ApiClient::answerCallback` и подтверждает выбор в чат. Одна актуальная запись на пару `(segment_id, chat_id)`;
+  через `ConsentService::optIn/optOut(chatId, userId, segmentId)` делает upsert факта и **не меняет состав сегмента**:
+  сегмент — вручную заданная аудитория, согласие живёт отдельно. Поэтому рассылка по сегменту берёт только `opt_in`
+  (`optedInChatIds`), поле получателей — только группы и каналы, а форма проверяет `Support\SegmentConsentRule`; пустой
+  резолв отклоняется `InvalidArgumentException`. После ответа удаляется исходное сообщение с опросом
+  (`ApiClient::deleteMessage`; при ошибке — fallback `editMessage` без кнопок), затем
+  `ApiClient::answerCallback` и подтверждение в чат. Одна актуальная запись на пару `(segment_id, chat_id)`;
   `answeredChatIds(segmentId)` — дедуп ответивших в этом сегменте (их повторно не опрашивают, проигнорировавших — да).
   Журнал ответов — `BroadcastConsentResource` (read-only: `canCreate()`/
   `canEdit()` → `false`) с фильтрами по сегменту (включая `none` — записи удалённых сегментов) и действию. При удалении
@@ -521,11 +539,12 @@ Xdebug включён и отчёт покрытия строится без д�
 11. **`composer.lock` не коммитится — локальный Gate скрывает дрейф.** Локально стоит
     `geekcodev/laravel-max-client v1.1.1`, а CI (без lock) получает свежие версии: зелёное локально может быть красным в
     CI. Проверка в условиях CI: скопировать дерево без `vendor/` и `composer.lock` в `.ci-sim/`, выполнить там
-    `composer install` и весь Gate — CI делает ровно то же. Каталог удаляется после проверки, в `.gitignore` не нужен.
-    Отдельно опасна подмена содержимого `vendor/` вручную (своим бэкапом, распакованным архивом, выбранной версией
-    пакета): `vendor/composer/installed.json` продолжает называть прежние версии, и зелёный Gate на таком наборе не
-    говорит ничего о том, что поставит CI. Такой прогон годится как проверка совместимости с конкретной версией
-    зависимости, но не закрывает Gate: закрывает только свежая установка по `composer.json` (правило 15, §7).
+    `composer install` и весь Gate — CI делает ровно то же. Каталог удаляется после проверки; на случай забытой копии он
+    добавлен в `.gitignore`. Отдельно опасна подмена содержимого `vendor/` вручную (своим бэкапом, распакованным
+    архивом, выбранной версией пакета): `vendor/composer/installed.json` продолжает называть прежние версии, и зелёный
+    Gate на таком наборе не говорит ничего о том, что поставит CI. Такой прогон годится как проверка совместимости с
+    конкретной версией зависимости, но не закрывает Gate: закрывает только свежая установка по `composer.json` (правило
+    15, §7).
 12. **Packagist из контейнера**: если `composer install` или `composer security-audit` зависает на сети (curl error 28,
     `Connection timed out`), помогает `COMPOSER_IPRESOLVE=4`
     (`docker compose run --rm -e COMPOSER_IPRESOLVE=4 app composer security-audit`); это временный флаг, в репозиторий
@@ -591,12 +610,14 @@ Xdebug включён и отчёт покрытия строится без д�
 26. **Пустой выбор рассылки — ошибка, а не «всем чатам».** `BroadcastService::create()` бросает
     `InvalidArgumentException`, если нет ни `chatIds`, ни `segments`. Форма требует хотя бы одно поле через
     `requiredWithout`. Повтор рассылки без снимка получателей показывает уведомление и не создаёт новую рассылку.
-27. **Селект сегментов и сегменты с диалогами.** В селект сегментов рассылки попадают только сегменты с активными
-    диалогами (`Support\BroadcastSegmentOptions`, число в бейдже —
-    `Services\BroadcastSegmentRecipients::dialogCounts()`). Сегменту нельзя добавить не-диалог: проверка
+27. **Селект сегментов и сегменты с диалогами.** Пустой сегмент — поддерживаемое состояние (его можно создать заранее и
+    наполнить позже; поле получателей сегмента необязательное), поэтому отдельной проверки «не пусто» нет. В селект
+    сегментов рассылки попадают только сегменты с согласившимися диалогами (`Support\BroadcastSegmentOptions`, число в
+    бейдже —
+    `Services\BroadcastSegmentRecipients::consentedCounts()`). Сегменту нельзя добавить не-диалог: проверка
     `Support\DialogsOnlyRule` на сервере и `dialogsOnly: true` в
-    `ChatSelectionField` (варианты, поиск, подписи, «Выбрать всех»). Старые группы в сегментах не удаляются, но не
-    получают рассылку по сегменту и помечены предупреждением.
+    `ChatSelectionField` (варианты, поиск, подписи, вариант «Выбрать всех» только в сегменте). Старые группы в сегментах
+    не удаляются, но не получают рассылку по сегменту и помечены предупреждением.
 
 28. **`nullOnDelete()` требует nullable-колонку.** `foreignId('segment_id')->constrained(...)->nullOnDelete()` без
     `nullable()` не даёт удалить родителя: SQLite и MySQL отклоняют запись NULL (`NOT NULL constraint failed`), а на
@@ -623,6 +644,14 @@ Xdebug включён и отчёт покрытия строится без д�
     ограничено `image.accepted_file_types`, картинки/видео — `image.accepted_mime_types`; Filament валидирует только
     `TemporaryUploadedFile`, поэтому в тестах правило проверяется через `getAcceptedFileTypes()`, а не подстановкой
     `UploadedFile::fake()`.
+
+30. **Сегмент — аудитория, а не список согласий.** Ответы не меняют `chat_ids` сегмента: `ConsentService::record()`
+    только пишет факт в `max_broadcast_consents`. Опрос идёт получателям сегмента без ответа, рассылка по сегменту —
+    только `opt_in` (`optedInChatIds`); поэтому «молчание» и отказ рассылку не получают, а ответившие запрос повторно не
+    получают. Диалоги выбираются только сегментами; поле получателей — только группы и каналы, явный диалог в `chatIds`
+    игнорируется. `SegmentConsentRule` требует согласившихся для выбранных сегментов, сервис дополнительно бросает
+    `InvalidArgumentException` на пустом резолве. Не «восстанавливай» старую пересборку `chat_ids` из таблицы согласий:
+    она стирала вручную добавленных получателей и ломала повторный опрос.
 
 ## 11. Чек-лист перед завершением задачи
 

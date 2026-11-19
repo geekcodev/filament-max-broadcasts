@@ -40,7 +40,8 @@ class ChatSelectionFieldTest extends TestCase
 
         $options = ChatSelectionField::options();
 
-        self::assertSame([22, 11], array_keys($options));
+        self::assertSame([ChatSelectionField::SELECT_ALL, 22, 11], array_keys($options));
+        self::assertStringContainsString('Выбрать всех', $options[ChatSelectionField::SELECT_ALL]);
     }
 
     public function testSearchResultsMatchesChatIdAndName(): void
@@ -225,6 +226,55 @@ class ChatSelectionFieldTest extends TestCase
         self::assertSame([], ChatSelectionField::optionLabels([['nested'], new \stdClass()]));
     }
 
+    public function testOptionLabelsHandlesSelectAllSentinel(): void
+    {
+        $labels = ChatSelectionField::optionLabels([ChatSelectionField::SELECT_ALL, 11]);
+
+        self::assertArrayHasKey(ChatSelectionField::SELECT_ALL, $labels);
+        self::assertStringContainsString('Выбрать всех', $labels[ChatSelectionField::SELECT_ALL]);
+    }
+
+    public function testExpandStateReplacesSelectAllWithEveryActiveChat(): void
+    {
+        Chats::create(11, 1, ['status' => MaxChatStatus::Active]);
+        Chats::create(22, 2, ['status' => MaxChatStatus::Active]);
+        Chats::create(33, 3, ['status' => MaxChatStatus::Stopped]);
+
+        self::assertEqualsCanonicalizing(
+            [11, 22],
+            ChatSelectionField::expandState([ChatSelectionField::SELECT_ALL]),
+        );
+        self::assertSame([11], ChatSelectionField::expandState(['11', 'abc']));
+        self::assertSame([], ChatSelectionField::expandState(null));
+    }
+
+    public function testOptionsAndSelectAllCanBeLimitedToGroupsAndChannels(): void
+    {
+        Chats::create(11, 1, ['status' => MaxChatStatus::Active, 'chat_type' => ChatType::Dialog]);
+        Chats::create(22, 22, ['status' => MaxChatStatus::Active, 'chat_type' => ChatType::Chat]);
+        Chats::create(33, 33, ['status' => MaxChatStatus::Active, 'chat_type' => ChatType::Channel]);
+
+        self::assertSame(
+            [ChatSelectionField::SELECT_ALL, 22, 33],
+            array_keys(ChatSelectionField::options(nonDialogsOnly: true)),
+        );
+        self::assertSame(
+            [22, 33],
+            array_keys(ChatSelectionField::options(nonDialogsOnly: true, withSelectAll: false)),
+        );
+        self::assertEqualsCanonicalizing(
+            [22, 33],
+            ChatSelectionField::expandState([ChatSelectionField::SELECT_ALL], nonDialogsOnly: true),
+        );
+    }
+
+    public function testMakeRejectsConflictingTypeScopes(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+
+        ChatSelectionField::make('chat_ids', 'Чаты', dialogsOnly: true, nonDialogsOnly: true);
+    }
+
     public function testMakeConfiguresMultipleSearchableSelect(): void
     {
         $select = ChatSelectionField::make('recipient_chat_ids', 'Получатели', helperText: 'Подсказка', required: true);
@@ -241,8 +291,8 @@ class ChatSelectionFieldTest extends TestCase
         Chats::create(11, 1, ['status' => MaxChatStatus::Active, 'chat_type' => ChatType::Dialog]);
         Chats::create(22, 22, ['status' => MaxChatStatus::Active, 'chat_type' => ChatType::Chat]);
 
-        self::assertSame([11], array_keys(ChatSelectionField::options(dialogsOnly: true)));
-        self::assertEqualsCanonicalizing([11, 22], array_keys(ChatSelectionField::options()));
+        self::assertSame([ChatSelectionField::SELECT_ALL, 11], array_keys(ChatSelectionField::options(dialogsOnly: true)));
+        self::assertEqualsCanonicalizing([ChatSelectionField::SELECT_ALL, 11, 22], array_keys(ChatSelectionField::options()));
     }
 
     public function testSearchResultsCanBeLimitedToDialogs(): void

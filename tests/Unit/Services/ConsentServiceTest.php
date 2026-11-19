@@ -40,14 +40,15 @@ class ConsentServiceTest extends TestCase
         self::assertInstanceOf(OffersSegment::class, $this->service->resolveConsentSegment());
     }
 
-    public function testOptInAddsChatToSegmentAndRecordsConsent(): void
+    public function testOptInRecordsConsentWithoutChangingSegmentMembership(): void
     {
         $this->service->optIn(111, userId: 222);
 
         $segment = $this->service->resolveConsentSegment();
 
-        self::assertSame([111], $segment->chat_ids);
+        self::assertSame([], $segment->refresh()->chat_ids);
         self::assertSame([111], $this->service->consentChatIds());
+        self::assertSame([111], $this->service->optedInChatIds());
 
         $consent = BroadcastConsent::query()->first();
         self::assertNotNull($consent);
@@ -65,7 +66,7 @@ class ConsentServiceTest extends TestCase
         self::assertSame(1, BroadcastConsent::query()->count());
     }
 
-    public function testOptOutRemovesChatAndRecordsAction(): void
+    public function testOptOutKeepsSegmentMembershipAndExcludesFromConsented(): void
     {
         $this->service->optIn(111, userId: 222);
         $this->service->optIn(333);
@@ -73,6 +74,7 @@ class ConsentServiceTest extends TestCase
         $this->service->optOut(111, userId: 999);
 
         self::assertSame([333], $this->service->consentChatIds());
+        self::assertEqualsCanonicalizing([111, 333], $this->service->answeredChatIds());
 
         $consent = BroadcastConsent::query()->where('chat_id', 111)->first();
         self::assertNotNull($consent);
@@ -80,11 +82,12 @@ class ConsentServiceTest extends TestCase
         self::assertSame(999, $consent->user_id);
     }
 
-    public function testOptOutWithoutConsentDoesNotAddChat(): void
+    public function testOptOutWithoutConsentDoesNotMakeChatConsented(): void
     {
         $this->service->optOut(555);
 
         self::assertSame([], $this->service->consentChatIds());
+        self::assertSame([555], $this->service->answeredChatIds());
     }
 
     public function testAnsweredChatIdsReturnsAllRespondentsRegardlessOfAction(): void
@@ -116,18 +119,36 @@ class ConsentServiceTest extends TestCase
         ]);
 
         self::assertSame([111], $this->service->answeredChatIds());
+        self::assertSame([111], $this->service->optedInChatIds());
     }
 
     public function testOptInWithSegmentIdRecordsOnlyIntoThatSegment(): void
     {
-        $vip = BroadcastSegment::query()->create(['name' => 'VIP', 'chat_ids' => []]);
-        $news = BroadcastSegment::query()->create(['name' => 'Новости', 'chat_ids' => []]);
+        $vip = BroadcastSegment::query()->create(['name' => 'VIP', 'chat_ids' => [111]]);
+        $news = BroadcastSegment::query()->create(['name' => 'Новости', 'chat_ids' => [111]]);
 
         $this->service->optIn(111, 222, $vip->id);
 
         self::assertSame([111], $vip->refresh()->chat_ids);
-        self::assertSame([], $news->refresh()->chat_ids);
+        self::assertSame([111], $news->refresh()->chat_ids);
         self::assertSame([], $this->service->consentChatIds());
+        self::assertSame([111], $this->service->optedInChatIds($vip->id));
+        self::assertSame([], $this->service->optedInChatIds($news->id));
+    }
+
+    public function testOptedInChatIdsBySegmentGroupsConsentInOneQuery(): void
+    {
+        $vip = BroadcastSegment::query()->create(['name' => 'VIP', 'chat_ids' => []]);
+        $news = BroadcastSegment::query()->create(['name' => 'Новости', 'chat_ids' => []]);
+
+        $this->service->optIn(111, null, $vip->id);
+        $this->service->optOut(222, null, $vip->id);
+        $this->service->optIn(333, null, $news->id);
+
+        self::assertSame([
+            $vip->id => [111],
+            $news->id => [333],
+        ], $this->service->optedInChatIdsBySegment([$vip->id, $news->id]));
     }
 
     public function testAnsweredChatIdsCanBeReadPerSegment(): void

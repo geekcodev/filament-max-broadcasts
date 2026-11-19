@@ -16,6 +16,12 @@ class DialogsOnlyRule implements ValidationRule
     {
         $ids = is_array($value) ? array_values(array_filter($value, is_scalar(...))) : [];
 
+        // Служебное значение «Выбрать всех» разворачивается в список чатов при сохранении.
+        $ids = array_values(array_filter(
+            $ids,
+            static fn (mixed $id): bool => $id !== ChatSelectionField::SELECT_ALL,
+        ));
+
         $notDialogs = array_diff(array_map('intval', $ids), ChatSelectionField::dialogIdsAmong($ids));
 
         if ($notDialogs !== []) {

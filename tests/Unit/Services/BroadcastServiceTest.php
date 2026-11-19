@@ -12,11 +12,13 @@ use GeekCo\FilamentMaxBroadcasts\Models\BroadcastAttachment;
 use GeekCo\FilamentMaxBroadcasts\Models\BroadcastSegment;
 use GeekCo\FilamentMaxBroadcasts\Services\BroadcastRecipientsResolver;
 use GeekCo\FilamentMaxBroadcasts\Services\BroadcastService;
+use GeekCo\FilamentMaxBroadcasts\Services\ConsentService;
 use GeekCo\FilamentMaxBroadcasts\Services\BroadcastTextSanitizer;
 use GeekCo\FilamentMaxBroadcasts\Tests\Fixtures\TestUser;
 use GeekCo\FilamentMaxBroadcasts\Tests\Fixtures\Chats;
 use GeekCo\FilamentMaxBroadcasts\Tests\TestCase;
 use GeekCo\LaravelMaxClient\Enums\MaxChatStatus;
+use GeekCo\LaravelMaxClient\Models\MaxChat;
 use GeekCo\MaxPhpClient\Enum\ChatType;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Queue;
@@ -35,8 +37,49 @@ class BroadcastServiceTest extends TestCase
             ]);
         }
 
+        return $this->mockResolver($chats);
+    }
+
+    private function makeResolverWithGroups(int ...$pairs): BroadcastRecipientsResolver
+    {
+        $chats = [];
+
+        foreach (array_chunk($pairs, 2) as [$userId, $chatId]) {
+            $chats[] = Chats::create($chatId, $userId, [
+                'status' => MaxChatStatus::Active,
+                'chat_type' => ChatType::Chat,
+            ]);
+        }
+
+        return $this->mockResolver($chats);
+    }
+
+    /**
+     * @param  list<MaxChat>  $chats
+     */
+    private function mockResolver(array $chats): BroadcastRecipientsResolver
+    {
+        $collection = new Collection($chats);
+
         $resolver = $this->mock(BroadcastRecipientsResolver::class);
-        $resolver->shouldReceive('resolve')->andReturn(new Collection($chats));
+        $resolver->shouldReceive('resolve')->andReturn($collection);
+        $resolver->shouldReceive('resolveForChatIds')->andReturnUsing(
+            static function (array $ids) use ($collection): Collection {
+                $wanted = array_fill_keys(array_map(
+                    static fn (mixed $id): int => is_scalar($id) ? (int) $id : 0,
+                    $ids,
+                ), true);
+
+                return $collection
+                    ->filter(static function (MaxChat $chat) use ($wanted): bool {
+                        /** @var int $chatId */
+                        $chatId = $chat->getAttribute('chat_id');
+
+                        return isset($wanted[$chatId]);
+                    })
+                    ->values();
+            },
+        );
 
         return $resolver;
     }
@@ -45,7 +88,7 @@ class BroadcastServiceTest extends TestCase
     {
         $service = new BroadcastService(
             new BroadcastTextSanitizer(),
-            $this->makeResolverWithChats(1, 11, 2, 22),
+            $this->makeResolverWithGroups(1, 11, 2, 22),
         );
 
         $broadcast = $service->create(
@@ -74,7 +117,7 @@ class BroadcastServiceTest extends TestCase
     {
         $service = new BroadcastService(
             new BroadcastTextSanitizer(),
-            $this->makeResolverWithChats(1, 11),
+            $this->makeResolverWithGroups(1, 11),
         );
 
         $broadcast = $service->create(
@@ -99,7 +142,7 @@ class BroadcastServiceTest extends TestCase
 
         $service = new BroadcastService(
             new BroadcastTextSanitizer(),
-            $this->makeResolverWithChats(1, 11),
+            $this->makeResolverWithGroups(1, 11),
         );
 
         $broadcast = $service->create(
@@ -121,7 +164,7 @@ class BroadcastServiceTest extends TestCase
     {
         $service = new BroadcastService(
             new BroadcastTextSanitizer(),
-            $this->makeResolverWithChats(1, 11),
+            $this->makeResolverWithGroups(1, 11),
         );
 
         $broadcast = $service->create(
@@ -197,7 +240,7 @@ class BroadcastServiceTest extends TestCase
     {
         $service = new BroadcastService(
             new BroadcastTextSanitizer(),
-            $this->makeResolverWithChats(1, 11),
+            $this->makeResolverWithGroups(1, 11),
         );
 
         $broadcast = $service->create(
@@ -231,7 +274,7 @@ class BroadcastServiceTest extends TestCase
     {
         $service = new BroadcastService(
             new BroadcastTextSanitizer(),
-            $this->makeResolverWithChats(1, 11, 2, 22, 3, 33),
+            $this->makeResolverWithGroups(1, 11, 2, 22, 3, 33),
         );
 
         $broadcast = $service->create(
@@ -278,13 +321,16 @@ class BroadcastServiceTest extends TestCase
             'chat_type' => ChatType::Chat,
         ]);
 
-        $resolver = $this->mock(BroadcastRecipientsResolver::class);
-        $resolver->shouldReceive('resolve')->andReturn(new Collection([
+        $consent = new ConsentService();
+        $consent->optIn(11, 1, $segment->id);
+        $consent->optIn(33, 3, $segment->id);
+
+        $resolver = $this->mockResolver([
             Chats::create(11, 1, ['status' => MaxChatStatus::Active, 'chat_type' => ChatType::Dialog]),
             $group,
-        ]));
+        ]);
 
-        $service = new BroadcastService(new BroadcastTextSanitizer(), $resolver);
+        $service = new BroadcastService(new BroadcastTextSanitizer(), $resolver, $consent);
 
         $broadcast = $service->create(
             text: 'Dialogs only',
@@ -295,16 +341,21 @@ class BroadcastServiceTest extends TestCase
         self::assertSame([11], $broadcast->recipients->pluck('chat_id')->all());
     }
 
-    public function testCreateWithSegmentUsesSegmentChats(): void
+    public function testCreateWithSegmentUsesOnlyConsentedSegmentChats(): void
     {
         $segment = BroadcastSegment::query()->create([
             'name' => 'VIP',
-            'chat_ids' => [11, 22],
+            'chat_ids' => [11, 22, 33],
         ]);
+
+        $consent = new ConsentService();
+        $consent->optIn(11, 1, $segment->id);
+        $consent->optIn(22, 2, $segment->id);
 
         $service = new BroadcastService(
             new BroadcastTextSanitizer(),
             $this->makeResolverWithChats(1, 11, 2, 22, 3, 33),
+            $consent,
         );
 
         $broadcast = $service->create(
@@ -319,7 +370,33 @@ class BroadcastServiceTest extends TestCase
         self::assertNull($broadcast->recipient_chat_ids);
     }
 
-    public function testCreateWithMultipleSegmentsUnionsTheirChats(): void
+    public function testCreateWithSegmentWithoutConsentsIsRejected(): void
+    {
+        $segment = BroadcastSegment::query()->create([
+            'name' => 'VIP',
+            'chat_ids' => [11, 22],
+        ]);
+
+        $service = new BroadcastService(
+            new BroadcastTextSanitizer(),
+            $this->makeResolverWithChats(1, 11, 2, 22),
+        );
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('no active recipients');
+
+        try {
+            $service->create(
+                text: 'No consent',
+                scheduledAt: null,
+                segments: [$segment],
+            );
+        } finally {
+            self::assertSame(0, Broadcast::query()->count());
+        }
+    }
+
+    public function testCreateWithMultipleSegmentsUnionsTheirConsentedChats(): void
     {
         $first = BroadcastSegment::query()->create([
             'name' => 'VIP',
@@ -327,12 +404,18 @@ class BroadcastServiceTest extends TestCase
         ]);
         $second = BroadcastSegment::query()->create([
             'name' => 'Employees',
-            'chat_ids' => [33],
+            'chat_ids' => [22, 33],
         ]);
+
+        $consent = new ConsentService();
+        $consent->optIn(11, 1, $first->id);
+        $consent->optIn(22, 2, $first->id);
+        $consent->optIn(33, 3, $second->id);
 
         $service = new BroadcastService(
             new BroadcastTextSanitizer(),
             $this->makeResolverWithChats(1, 11, 2, 22, 3, 33),
+            $consent,
         );
 
         $broadcast = $service->create(
@@ -346,28 +429,214 @@ class BroadcastServiceTest extends TestCase
         self::assertSame([$first->id, $second->id], $broadcast->segments->pluck('id')->all());
     }
 
-    public function testCreateWithExplicitChatIdsOverridesSegment(): void
+    public function testRepeatKeepsSamePeopleAndSkipsFreshOptOut(): void
     {
         $segment = BroadcastSegment::query()->create([
             'name' => 'VIP',
-            'chat_ids' => [11, 22, 33],
+            'chat_ids' => [11, 22],
         ]);
+
+        $consent = new ConsentService();
+        $consent->optIn(11, 1, $segment->id);
+        $consent->optIn(22, 2, $segment->id);
 
         $service = new BroadcastService(
             new BroadcastTextSanitizer(),
-            $this->makeResolverWithChats(1, 11, 2, 22, 3, 33),
+            $this->makeResolverWithChats(1, 11, 2, 22),
+            $consent,
         );
 
-        $broadcast = $service->create(
-            text: 'Adjusted from segment',
+        $original = $service->create(
+            text: 'Original',
+            scheduledAt: null,
+            chatIds: [11, 22],
+            segments: [$segment],
+        );
+
+        $consent->optOut(11, 1, $segment->id);
+
+        $repeated = $service->repeat($original);
+
+        self::assertSame([22], $repeated->recipients->pluck('chat_id')->all());
+        self::assertSame([22], $repeated->recipient_chat_ids);
+        self::assertSame([$segment->id], $repeated->segments->pluck('id')->all());
+    }
+
+    public function testRepeatKeepsManualGroupsAndFiltersDialogs(): void
+    {
+        $segment = BroadcastSegment::query()->create([
+            'name' => 'VIP',
+            'chat_ids' => [11],
+        ]);
+
+        $consent = new ConsentService();
+        $consent->optIn(11, 1, $segment->id);
+
+        $service = new BroadcastService(
+            new BroadcastTextSanitizer(),
+            $this->mockResolver([
+                Chats::create(11, 1, ['status' => MaxChatStatus::Active, 'chat_type' => ChatType::Dialog]),
+                Chats::create(22, 2, ['status' => MaxChatStatus::Active, 'chat_type' => ChatType::Chat]),
+            ]),
+            $consent,
+        );
+
+        $original = $service->create(
+            text: 'Dialog and group',
+            scheduledAt: null,
+            chatIds: [22],
+            segments: [$segment],
+        );
+
+        self::assertEqualsCanonicalizing([11, 22], $original->recipient_chat_ids ?? []);
+
+        $consent->optOut(11, 1, $segment->id);
+
+        $repeated = $service->repeat($original);
+
+        self::assertSame([22], $repeated->recipients->pluck('chat_id')->all());
+        self::assertSame([22], $repeated->recipient_chat_ids);
+    }
+
+    public function testRepeatWithoutSnapshotResolvesCurrentConsent(): void
+    {
+        $segment = BroadcastSegment::query()->create([
+            'name' => 'VIP',
+            'chat_ids' => [11, 22],
+        ]);
+
+        $consent = new ConsentService();
+        $consent->optIn(11, 1, $segment->id);
+
+        $service = new BroadcastService(
+            new BroadcastTextSanitizer(),
+            $this->makeResolverWithChats(1, 11, 2, 22),
+            $consent,
+        );
+
+        $original = $service->create(
+            text: 'Segments only',
+            scheduledAt: null,
+            segments: [$segment],
+        );
+
+        self::assertNull($original->recipient_chat_ids);
+
+        $consent->optOut(11, 1, $segment->id);
+        $consent->optIn(22, 2, $segment->id);
+
+        $repeated = $service->repeat($original);
+
+        self::assertSame([22], $repeated->recipients->pluck('chat_id')->all());
+    }
+
+    public function testRepeatWithoutSegmentsUsesSnapshotAsIs(): void
+    {
+        $service = new BroadcastService(
+            new BroadcastTextSanitizer(),
+            $this->makeResolverWithGroups(1, 11, 2, 22),
+            new ConsentService(),
+        );
+
+        $original = $service->create(
+            text: 'Manual',
+            scheduledAt: null,
+            chatIds: [11, 22],
+        );
+
+        $repeated = $service->repeat($original);
+
+        self::assertSame([11, 22], $repeated->recipients->pluck('chat_id')->all());
+    }
+
+    public function testRepeatThrowsWhenEveryoneOptedOut(): void
+    {
+        $segment = BroadcastSegment::query()->create([
+            'name' => 'VIP',
+            'chat_ids' => [11],
+        ]);
+
+        $consent = new ConsentService();
+        $consent->optIn(11, 1, $segment->id);
+
+        $service = new BroadcastService(
+            new BroadcastTextSanitizer(),
+            $this->makeResolverWithChats(1, 11),
+            $consent,
+        );
+
+        $original = $service->create(
+            text: 'Original',
             scheduledAt: null,
             chatIds: [11],
             segments: [$segment],
         );
 
-        self::assertSame(1, $broadcast->total_recipients);
+        $consent->optOut(11, 1, $segment->id);
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('no active recipients');
+
+        try {
+            $service->repeat($original);
+        } finally {
+            self::assertSame(1, Broadcast::query()->count());
+        }
+    }
+
+    public function testExplicitDialogsAreIgnoredForSegmentBroadcast(): void
+    {
+        $segment = BroadcastSegment::query()->create([
+            'name' => 'VIP',
+            'chat_ids' => [11, 22],
+        ]);
+
+        $consent = new ConsentService();
+        $consent->optIn(11, 1, $segment->id);
+
+        $service = new BroadcastService(
+            new BroadcastTextSanitizer(),
+            $this->makeResolverWithChats(1, 11, 2, 22),
+            $consent,
+        );
+
+        $broadcast = $service->create(
+            text: 'Only consented dialogs',
+            scheduledAt: null,
+            chatIds: [22],
+            segments: [$segment],
+        );
+
         self::assertSame([11], $broadcast->recipients->pluck('chat_id')->all());
         self::assertSame([11], $broadcast->recipient_chat_ids);
         self::assertSame([$segment->id], $broadcast->segments->pluck('id')->all());
+    }
+
+    public function testManualGroupsAreAddedToSegmentBroadcast(): void
+    {
+        $segment = BroadcastSegment::query()->create([
+            'name' => 'VIP',
+            'chat_ids' => [11],
+        ]);
+
+        $consent = new ConsentService();
+        $consent->optIn(11, 1, $segment->id);
+
+        $resolver = $this->mockResolver([
+            Chats::create(11, 1, ['status' => MaxChatStatus::Active, 'chat_type' => ChatType::Dialog]),
+            Chats::create(22, 2, ['status' => MaxChatStatus::Active, 'chat_type' => ChatType::Chat]),
+        ]);
+
+        $service = new BroadcastService(new BroadcastTextSanitizer(), $resolver, $consent);
+
+        $broadcast = $service->create(
+            text: 'Dialogs and a group',
+            scheduledAt: null,
+            chatIds: [11, 22],
+            segments: [$segment],
+        );
+
+        self::assertEqualsCanonicalizing([11, 22], $broadcast->recipients->pluck('chat_id')->all());
+        self::assertEqualsCanonicalizing([11, 22], $broadcast->recipient_chat_ids);
     }
 }

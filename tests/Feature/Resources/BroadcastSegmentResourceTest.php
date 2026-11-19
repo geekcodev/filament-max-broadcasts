@@ -11,9 +11,11 @@ use GeekCo\FilamentMaxBroadcasts\Models\BroadcastSegment;
 use GeekCo\FilamentMaxBroadcasts\Resources\BroadcastSegmentResource;
 use GeekCo\FilamentMaxBroadcasts\Resources\Pages\CreateBroadcast;
 use GeekCo\FilamentMaxBroadcasts\Resources\Pages\CreateBroadcastSegment;
+use GeekCo\FilamentMaxBroadcasts\Support\ChatSelectionField;
 use GeekCo\FilamentMaxBroadcasts\Resources\Pages\EditBroadcastSegment;
 use GeekCo\FilamentMaxBroadcasts\Resources\Pages\ListBroadcastSegments;
 use GeekCo\FilamentMaxBroadcasts\Resources\Pages\ViewBroadcastSegment;
+use GeekCo\FilamentMaxBroadcasts\Services\ConsentService;
 use GeekCo\FilamentMaxBroadcasts\Tests\Fixtures\TestUser;
 use GeekCo\FilamentMaxBroadcasts\Tests\Fixtures\Chats;
 use GeekCo\FilamentMaxBroadcasts\Tests\TestCase;
@@ -110,21 +112,21 @@ class BroadcastSegmentResourceTest extends TestCase
         self::assertSame(0, $segment->chat_count);
     }
 
-    public function testCreateBroadcastWithSegmentAndManualRecipients(): void
+    public function testCreateBroadcastWithManualGroupRecipient(): void
     {
         $this->actingAs($this->adminUser());
         $this->activeChats();
 
-        BroadcastSegment::query()->create([
-            'name' => 'VIP',
-            'chat_ids' => [11, 22],
+        Chats::create(44, 44, [
+            'status' => MaxChatStatus::Active,
+            'chat_type' => ChatType::Chat,
         ]);
 
         Livewire::test(CreateBroadcast::class)
             ->fillForm([
                 'type' => 'news',
-                'text' => 'For VIPs',
-                'recipient_chat_ids' => [11],
+                'text' => 'For a group',
+                'recipient_chat_ids' => [44],
             ])
             ->call('create')
             ->assertHasNoFormErrors();
@@ -132,8 +134,8 @@ class BroadcastSegmentResourceTest extends TestCase
         /** @var Broadcast $broadcast */
         $broadcast = Broadcast::query()->firstOrFail();
 
-        self::assertSame([11], $broadcast->recipient_chat_ids);
-        self::assertSame([11], $broadcast->recipients->pluck('chat_id')->all());
+        self::assertSame([44], $broadcast->recipient_chat_ids);
+        self::assertSame([44], $broadcast->recipients->pluck('chat_id')->all());
         self::assertSame(1, $broadcast->total_recipients);
     }
 
@@ -150,6 +152,11 @@ class BroadcastSegmentResourceTest extends TestCase
             'name' => 'Employees',
             'chat_ids' => [33],
         ]);
+
+        $consent = app(ConsentService::class);
+        $consent->optIn(11, 1, $vip->id);
+        $consent->optIn(22, 2, $vip->id);
+        $consent->optIn(33, 3, $employees->id);
 
         Livewire::test(CreateBroadcast::class)
             ->fillForm([
@@ -534,9 +541,16 @@ class BroadcastSegmentResourceTest extends TestCase
         Chats::create(33, 33, ['status' => MaxChatStatus::Active, 'chat_type' => ChatType::Chat]);
 
         Livewire::test(CreateBroadcastSegment::class)
-            ->callFormComponentAction('chat_ids', 'select_all')
-            // @phpstan-ignore method.notFound
-            ->assertFormSet(['chat_ids' => [11, 22]]);
+            ->fillForm([
+                'name' => 'All dialogs',
+                'chat_ids' => [ChatSelectionField::SELECT_ALL],
+            ])
+            ->call('create')
+            ->assertHasNoFormErrors();
+
+        $segment = BroadcastSegment::query()->where('name', 'All dialogs')->firstOrFail();
+
+        self::assertEqualsCanonicalizing([11, 22], $segment->chat_ids);
     }
 
     public function testViewPageWarnsAboutNonDialogRecipients(): void

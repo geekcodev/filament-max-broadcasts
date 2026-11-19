@@ -40,11 +40,14 @@ class SendConsentRequestsJobTest extends TestCase
         ]);
     }
 
-    private function segment(string $name = 'VIP'): BroadcastSegment
+    /**
+     * @param  list<int>  $chatIds
+     */
+    private function segment(string $name = 'VIP', array $chatIds = []): BroadcastSegment
     {
         return BroadcastSegment::query()->create([
             'name' => $name,
-            'chat_ids' => [],
+            'chat_ids' => $chatIds,
         ]);
     }
 
@@ -62,7 +65,7 @@ class SendConsentRequestsJobTest extends TestCase
     {
         $this->dialog(11, 1);
         $this->dialog(22, 2);
-        $segment = $this->segment();
+        $segment = $this->segment('VIP', [11, 22]);
         $this->consent->optIn(22, 2, $segment->id);
 
         $sender = $this->mock(BroadcastSender::class);
@@ -84,7 +87,7 @@ class SendConsentRequestsJobTest extends TestCase
     public function testHandleSendsButtonsWithSegmentPayloads(): void
     {
         $this->dialog(11, 1);
-        $segment = $this->segment();
+        $segment = $this->segment('VIP', [11]);
 
         $sender = $this->mock(BroadcastSender::class);
         $sender->shouldReceive('send')->once()->with(
@@ -107,7 +110,7 @@ class SendConsentRequestsJobTest extends TestCase
     public function testHandleDoesNothingWhenEveryoneAnswered(): void
     {
         $this->dialog(11, 1);
-        $segment = $this->segment();
+        $segment = $this->segment('VIP', [11]);
         $this->consent->optOut(11, 1, $segment->id);
 
         $sender = $this->mock(BroadcastSender::class);
@@ -129,7 +132,7 @@ class SendConsentRequestsJobTest extends TestCase
     public function testHandleSkipsWhenLockIsHeldForSameSegment(): void
     {
         $this->dialog(11, 1);
-        $segment = $this->segment();
+        $segment = $this->segment('VIP', [11]);
 
         $lock = Cache::lock('consent:send-request:'.$segment->id, 600);
         self::assertTrue($lock->get());
@@ -148,7 +151,7 @@ class SendConsentRequestsJobTest extends TestCase
     {
         $this->dialog(11, 1);
         $this->dialog(22, 2);
-        $segment = $this->segment();
+        $segment = $this->segment('VIP', [11, 22]);
 
         $sender = $this->mock(BroadcastSender::class);
         $sender->shouldReceive('send')
