@@ -104,6 +104,90 @@ class ConsentServiceTest extends TestCase
         self::assertSame([], $this->service->answeredChatIds($this->segment->id));
     }
 
+    public function testRequestSentRecordsPendingWithoutMakingChatConsented(): void
+    {
+        $this->service->requestSent(111, 222, $this->segment->id);
+
+        self::assertSame([], $this->service->optedInChatIds($this->segment->id));
+        self::assertSame([], $this->service->answeredChatIds($this->segment->id));
+
+        $consent = BroadcastConsent::query()->first();
+        self::assertNotNull($consent);
+        self::assertSame(111, $consent->chat_id);
+        self::assertSame(222, $consent->user_id);
+        self::assertSame(BroadcastConsentAction::Pending, $consent->action);
+        self::assertSame('request', $consent->source);
+    }
+
+    public function testRequestSentForSegmentRecordsPending(): void
+    {
+        $this->service->requestSentForSegment($this->segment, 111, 222);
+
+        self::assertSame([], $this->service->optedInChatIds($this->segment->id));
+        self::assertSame([], $this->service->answeredChatIds($this->segment->id));
+
+        $consent = BroadcastConsent::query()->first();
+        self::assertNotNull($consent);
+        self::assertSame(111, $consent->chat_id);
+        self::assertSame(222, $consent->user_id);
+        self::assertSame(BroadcastConsentAction::Pending, $consent->action);
+        self::assertSame('request', $consent->source);
+    }
+
+    public function testRequestSentForSegmentDoesNotOverwriteAnswer(): void
+    {
+        $this->service->optIn(111, 222, $this->segment->id);
+        $this->service->requestSentForSegment($this->segment, 111, 222);
+
+        self::assertSame([111], $this->service->answeredChatIds($this->segment->id));
+
+        $consent = BroadcastConsent::query()->first();
+        self::assertNotNull($consent);
+        self::assertSame(BroadcastConsentAction::OptIn, $consent->action);
+        self::assertSame('callback', $consent->source);
+    }
+
+    public function testRequestSentDoesNotOverwriteAnswer(): void
+    {
+        $this->service->optIn(111, 222, $this->segment->id);
+        $this->service->requestSent(111, 222, $this->segment->id);
+
+        self::assertSame([111], $this->service->answeredChatIds($this->segment->id));
+
+        $consent = BroadcastConsent::query()->first();
+        self::assertNotNull($consent);
+        self::assertSame(BroadcastConsentAction::OptIn, $consent->action);
+        self::assertSame('callback', $consent->source);
+    }
+
+    public function testRequestSentKeepsSinglePendingRow(): void
+    {
+        $this->service->requestSent(111, null, $this->segment->id);
+        $this->service->requestSent(111, 333, $this->segment->id);
+
+        self::assertSame(1, BroadcastConsent::query()->count());
+
+        $consent = BroadcastConsent::query()->first();
+        self::assertNotNull($consent);
+        self::assertSame(BroadcastConsentAction::Pending, $consent->action);
+        self::assertSame(333, $consent->user_id);
+    }
+
+    public function testRequestSentForUnknownSegmentRecordsNothing(): void
+    {
+        $this->service->requestSent(111, 222, 999);
+
+        self::assertSame(0, BroadcastConsent::query()->count());
+    }
+
+    public function testAnsweredChatIdsExcludesPending(): void
+    {
+        $this->service->requestSent(111, null, $this->segment->id);
+        $this->service->optIn(333, null, $this->segment->id);
+
+        self::assertSame([333], $this->service->answeredChatIds($this->segment->id));
+    }
+
     public function testConsentRecordsAreScopedToSegment(): void
     {
         $other = BroadcastSegment::query()->create(['name' => 'Новости', 'chat_ids' => []]);

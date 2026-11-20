@@ -17,7 +17,7 @@ class ListBroadcasts extends ListRecords
         $createPermission = config()->string('filament-max-broadcasts.permissions.create', 'broadcasts.create');
 
         return [
-            CreateAction::make()->authorize($createPermission),
+            CreateAction::make()->authorize($createPermission)->outlined()->icon('heroicon-o-plus'),
         ];
     }
 }

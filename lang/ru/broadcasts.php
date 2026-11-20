@@ -19,6 +19,7 @@ return [
 
     'consent' => [
         'action' => [
+            'pending' => 'Ожидает ответа',
             'opt_in' => 'Согласен',
             'opt_out' => 'Не согласен',
         ],
@@ -162,10 +163,16 @@ return [
         'segment' => 'Сегмент',
         'action' => 'Действие',
         'source' => 'Источник',
+        'source_values' => [
+            'callback' => 'Кнопка',
+            'request' => 'Запрос',
+        ],
         'created_at' => 'Дата',
         'filter_action' => 'Действие',
         'filter_segment' => 'Сегмент',
         'no_segment' => 'Без сегмента',
+        'empty_heading' => 'Согласий пока нет',
+        'empty_description' => 'Отправьте запрос согласия из сегмента — здесь появятся запросы и ответы.',
     ],
 
     'notifications' => [

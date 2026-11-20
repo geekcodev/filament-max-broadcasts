@@ -47,6 +47,7 @@ return [
     // Очередь / отправка.
     'queue' => [
         'batch_size'         => 25,
+        // Нижняя граница TTL лока: фактический TTL — max(lock_ttl_seconds, timeout) + 60.
         'lock_ttl_seconds'   => 600,
         'tries'              => 3,
         'timeout'            => 3600,

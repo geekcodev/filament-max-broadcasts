@@ -19,6 +19,7 @@ return [
 
     'consent' => [
         'action' => [
+            'pending' => 'Awaiting response',
             'opt_in' => 'Agree',
             'opt_out' => 'Disagree',
         ],
@@ -162,10 +163,16 @@ return [
         'segment' => 'Segment',
         'action' => 'Action',
         'source' => 'Source',
+        'source_values' => [
+            'callback' => 'Button',
+            'request' => 'Request',
+        ],
         'created_at' => 'Date',
         'filter_action' => 'Action',
         'filter_segment' => 'Segment',
         'no_segment' => 'No segment',
+        'empty_heading' => 'No consents yet',
+        'empty_description' => 'Send a consent request from a segment — requests and responses will appear here.',
     ],
 
     'notifications' => [

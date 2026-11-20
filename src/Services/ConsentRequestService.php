@@ -37,6 +37,9 @@ class ConsentRequestService
     /**
      * Получатели сегмента (активные диалоги), которые ещё не ответили.
      *
+     * Запись pending — это отправленный запрос, а не ответ, поэтому такие чаты
+     * остаются кандидатами и при повторном нажатии кнопки получают запрос снова.
+     *
      * @return Collection<int, MaxChat>
      */
     public function eligibleChats(BroadcastSegment $segment): Collection

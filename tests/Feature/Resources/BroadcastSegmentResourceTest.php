@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace GeekCo\FilamentMaxBroadcasts\Tests\Feature\Resources;
 
+use Filament\Actions\Action;
 use GeekCo\FilamentMaxBroadcasts\Models\Broadcast;
 use GeekCo\FilamentMaxBroadcasts\Enums\BroadcastConsentAction;
 use GeekCo\FilamentMaxBroadcasts\Models\BroadcastConsent;
@@ -83,7 +84,8 @@ class BroadcastSegmentResourceTest extends TestCase
                 'chat_ids' => [11, 22],
             ])
             ->call('create')
-            ->assertHasNoFormErrors();
+            ->assertHasNoFormErrors()
+            ->assertRedirect(BroadcastSegmentResource::getUrl('index'));
 
         /** @var BroadcastSegment $segment */
         $segment = BroadcastSegment::query()->where('name', 'VIP clients')->firstOrFail();
@@ -227,7 +229,8 @@ class BroadcastSegmentResourceTest extends TestCase
                 'chat_ids' => ['11', '22'],
             ])
             ->call('save')
-            ->assertHasNoFormErrors();
+            ->assertHasNoFormErrors()
+            ->assertRedirect(BroadcastSegmentResource::getUrl('index'));
 
         $segment->refresh();
 
@@ -481,7 +484,9 @@ class BroadcastSegmentResourceTest extends TestCase
         Livewire::test(ListBroadcastSegments::class)
             ->assertSuccessful()
             // @phpstan-ignore method.notFound
-            ->assertActionVisible('create');
+            ->assertActionVisible('create')
+            // @phpstan-ignore method.notFound
+            ->assertActionExists('create', static fn (Action $action): bool => $action->isOutlined());
     }
 
     public function testCreateActionIsHiddenWithoutCreatePermission(): void
@@ -509,6 +514,71 @@ class BroadcastSegmentResourceTest extends TestCase
         ]));
 
         $this->get(BroadcastSegmentResource::getUrl('create'))->assertForbidden();
+    }
+
+    public function testCreatePageUsesOutlinedActionsWithIconsAndWithoutCreateAnother(): void
+    {
+        $this->actingAs($this->adminUser());
+
+        /** @var CreateBroadcastSegment $page */
+        $page = Livewire::test(CreateBroadcastSegment::class)->instance();
+
+        $actions = $this->formActions($page);
+
+        self::assertArrayNotHasKey('createAnother', $actions);
+        self::assertArrayHasKey('create', $actions);
+
+        self::assertTrue($actions['create']->isOutlined());
+        self::assertSame('heroicon-o-plus', $actions['create']->getIcon());
+
+        self::assertTrue($actions['cancel']->isOutlined());
+        self::assertSame('heroicon-o-x-mark', $actions['cancel']->getIcon());
+    }
+
+    public function testEditPageUsesOutlinedActionsWithIcons(): void
+    {
+        $this->actingAs($this->adminUser());
+
+        $segment = BroadcastSegment::query()->create([
+            'name' => 'VIP',
+            'chat_ids' => [11],
+        ]);
+
+        /** @var EditBroadcastSegment $page */
+        $page = Livewire::test(EditBroadcastSegment::class, ['record' => $segment->getKey()])->instance();
+
+        $actions = $this->formActions($page);
+
+        self::assertArrayHasKey('save', $actions);
+        self::assertTrue($actions['save']->isOutlined());
+        self::assertSame('heroicon-o-check', $actions['save']->getIcon());
+
+        self::assertTrue($actions['cancel']->isOutlined());
+        self::assertSame('heroicon-o-x-mark', $actions['cancel']->getIcon());
+    }
+
+    /**
+     * @return array<string, Action>
+     */
+    private function formActions(object $page): array
+    {
+        $method = new \ReflectionMethod($page, 'getFormActions');
+        $result = $method->invoke($page);
+        $actions = [];
+
+        foreach (is_array($result) ? $result : [] as $component) {
+            if (! $component instanceof Action) {
+                continue;
+            }
+
+            $name = $component->getName();
+
+            if ($name !== null) {
+                $actions[$name] = $component;
+            }
+        }
+
+        return $actions;
     }
 
     public function testCreateSegmentRejectsGroupChat(): void

@@ -94,6 +94,30 @@ class BroadcastSegmentConsentsRelationManagerTest extends TestCase
             ->assertTableColumnExists('created_at');
     }
 
+    public function testTableShowsPendingRequestsWithTheirLabel(): void
+    {
+        $this->actingAs($this->user(manage: true));
+
+        $segment = $this->segment();
+        $pending = $this->consent($segment, 11, BroadcastConsentAction::Pending);
+
+        $this->relationManager($segment)
+            ->assertSuccessful()
+            // @phpstan-ignore method.notFound
+            ->assertCanSeeTableRecords([$pending])
+            ->assertSee(BroadcastConsentAction::Pending->label());
+    }
+
+    public function testEmptyConsentStateIsLocalized(): void
+    {
+        $this->actingAs($this->user(manage: true));
+
+        $this->relationManager($this->segment())
+            ->assertSuccessful()
+            ->assertSee(__('filament-max-broadcasts::broadcasts.consent_table.empty_heading'))
+            ->assertDontSee('broadcast consents');
+    }
+
     public function testSegmentColumnIsOmittedBecauseOwnerIsKnown(): void
     {
         $this->actingAs($this->user(manage: true));

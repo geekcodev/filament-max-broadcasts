@@ -20,8 +20,8 @@ class ViewBroadcastSegment extends ViewRecord
 
         return [
             RequestConsentAction::make()->record($this->getRecord()),
-            EditAction::make()->authorize($managePermission),
-            DeleteAction::make()->authorize($managePermission),
+            EditAction::make()->authorize($managePermission)->outlined()->icon('heroicon-o-pencil-square'),
+            DeleteAction::make()->authorize($managePermission)->outlined()->icon('heroicon-o-trash'),
         ];
     }
 }

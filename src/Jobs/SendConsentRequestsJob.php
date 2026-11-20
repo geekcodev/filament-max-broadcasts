@@ -8,8 +8,10 @@ use GeekCo\FilamentMaxBroadcasts\Models\BroadcastSegment;
 use GeekCo\FilamentMaxBroadcasts\Services\BroadcastSender;
 use GeekCo\FilamentMaxBroadcasts\Services\BroadcastTextSanitizer;
 use GeekCo\FilamentMaxBroadcasts\Services\ConsentRequestService;
+use GeekCo\FilamentMaxBroadcasts\Services\ConsentService;
 use GeekCo\FilamentMaxBroadcasts\Support\ConsentButtons;
 use GeekCo\FilamentMaxBroadcasts\Support\ChatRegistry;
+use GeekCo\FilamentMaxBroadcasts\Support\QueueLockTtl;
 use GeekCo\LaravelMaxClient\Models\MaxChat;
 use GeekCo\MaxPhpClient\Dto\Recipient;
 use Illuminate\Bus\Queueable;
@@ -25,10 +27,11 @@ use Throwable;
 /**
  * Фоновая отправка запроса согласия по сегменту всем ещё не ответившим диалогам.
  *
- * Запрос не создаёт Broadcast: факт получения сознательно не фиксируется
- * (ответившие в сегменте запрос больше не получают, а проигнорировавшие —
- * получают снова). Получатели переопределяются на момент выполнения, lock на
- * сегмент защищает от параллельных запусков кнопкой.
+ * Запрос не создаёт Broadcast: получатели переопределяются на момент выполнения, а
+ * lock на сегмент защищает от параллельных запусков кнопкой. Каждая успешная
+ * отправка фиксируется в журнале согласий записью pending; ответ (opt_in/opt_out)
+ * перезаписывает её, поэтому ответившие повторно не опрашиваются, а pending
+ * остаётся кандидатом на повторный запрос.
  */
 class SendConsentRequestsJob implements ShouldQueue
 {
@@ -62,8 +65,9 @@ class SendConsentRequestsJob implements ShouldQueue
         BroadcastSender $sender,
         ConsentRequestService $service,
         BroadcastTextSanitizer $sanitizer,
+        ConsentService $consents,
     ): void {
-        $lockTtl = config()->integer('filament-max-broadcasts.queue.lock_ttl_seconds', 600);
+        $lockTtl = QueueLockTtl::seconds();
 
         $lock = Cache::lock('consent:send-request:'.$this->segmentId, $lockTtl);
 
@@ -79,7 +83,7 @@ class SendConsentRequestsJob implements ShouldQueue
         }
 
         try {
-            $this->send($sender, $service, $sanitizer);
+            $this->send($sender, $service, $sanitizer, $consents);
         } finally {
             $lock->release();
         }
@@ -89,6 +93,7 @@ class SendConsentRequestsJob implements ShouldQueue
         BroadcastSender $sender,
         ConsentRequestService $service,
         BroadcastTextSanitizer $sanitizer,
+        ConsentService $consents,
     ): void {
         $segment = $service->findSegment($this->segmentId);
 
@@ -112,7 +117,7 @@ class SendConsentRequestsJob implements ShouldQueue
         foreach ($chats->chunk($batchSize) as $chunk) {
             /** @var MaxChat $chat */
             foreach ($chunk as $chat) {
-                $this->sendTo($sender, $chat, $message, $buttonRows);
+                $this->sendTo($sender, $consents, $segment, $chat, $message, $buttonRows);
             }
         }
     }
@@ -130,11 +135,10 @@ class SendConsentRequestsJob implements ShouldQueue
     /**
      * @param  list<list<\GeekCo\MaxPhpClient\Dto\Button>>  $buttonRows
      */
-    /**
-     * @param  list<list<\GeekCo\MaxPhpClient\Dto\Button>>  $buttonRows
-     */
     private function sendTo(
         BroadcastSender $sender,
+        ConsentService $consents,
+        BroadcastSegment $segment,
         MaxChat $chat,
         string $message,
         array $buttonRows,
@@ -155,6 +159,21 @@ class SendConsentRequestsJob implements ShouldQueue
             Log::warning('Consent: request send failed.', [
                 'chat_id' => $chatId,
                 'user_id' => $userId,
+                'error' => $exception->getMessage(),
+            ]);
+
+            return;
+        }
+
+        // Журнал не должен ронять уже выполненную отправку: иначе ретрай джобы
+        // продублирует запрос. Сегмент передан моделью — повторного SELECT на
+        // каждого получателя нет. Пропуск записи виден в логе.
+        try {
+            $consents->requestSentForSegment($segment, $chatId, $userId);
+        } catch (Throwable $exception) {
+            Log::warning('Consent: request state not recorded.', [
+                'chat_id' => $chatId,
+                'segment_id' => $this->segmentId,
                 'error' => $exception->getMessage(),
             ]);
         }

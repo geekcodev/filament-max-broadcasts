@@ -59,6 +59,7 @@ class ViewBroadcast extends ViewRecord
                 ->label(__('filament-max-broadcasts::broadcasts.actions.delete'))
                 ->icon('heroicon-o-trash')
                 ->color('danger')
+                ->outlined()
                 ->requiresConfirmation()
                 ->modalHeading(__('filament-max-broadcasts::broadcasts.actions.delete'))
                 ->modalSubmitActionLabel(__('filament-max-broadcasts::broadcasts.actions.delete'))
@@ -71,6 +72,7 @@ class ViewBroadcast extends ViewRecord
             Action::make('sendNow')
                 ->label(__('filament-max-broadcasts::broadcasts.actions.send_now'))
                 ->icon('heroicon-o-paper-airplane')
+                ->outlined()
                 ->requiresConfirmation()
                 ->visible(fn (): bool => $broadcast->status === BroadcastStatus::Scheduled)
                 ->authorize($managePermission)
@@ -81,6 +83,7 @@ class ViewBroadcast extends ViewRecord
                 ->label(__('filament-max-broadcasts::broadcasts.actions.cancel'))
                 ->icon('heroicon-o-x-circle')
                 ->color('danger')
+                ->outlined()
                 ->requiresConfirmation()
                 ->visible(
                     fn (): bool => in_array($broadcast->status, [

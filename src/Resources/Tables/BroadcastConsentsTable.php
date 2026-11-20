@@ -16,6 +16,7 @@ use GeekCo\FilamentMaxBroadcasts\Support\ChatSelectionField;
 use GeekCo\LaravelMaxClient\Models\MaxChat;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Lang;
 
 class BroadcastConsentsTable
 {
@@ -75,6 +76,8 @@ class BroadcastConsentsTable
         }
 
         return $table
+            ->emptyStateHeading(__('filament-max-broadcasts::broadcasts.consent_table.empty_heading'))
+            ->emptyStateDescription(__('filament-max-broadcasts::broadcasts.consent_table.empty_description'))
             ->modifyQueryUsing(
                 static fn (Builder $query): Builder => $query->with([
                     'segment',
@@ -90,12 +93,19 @@ class BroadcastConsentsTable
                     ->label(__('filament-max-broadcasts::broadcasts.consent_table.action'))
                     ->badge()
                     ->color(fn (BroadcastConsentAction $state): string => match ($state) {
+                        BroadcastConsentAction::Pending => 'gray',
                         BroadcastConsentAction::OptIn => 'success',
                         BroadcastConsentAction::OptOut => 'danger',
                     })
                     ->formatStateUsing(fn (BroadcastConsentAction $state): string => $state->label()),
                 TextColumn::make('source')
-                    ->label(__('filament-max-broadcasts::broadcasts.consent_table.source')),
+                    ->label(__('filament-max-broadcasts::broadcasts.consent_table.source'))
+                    ->formatStateUsing(static function (string $state): string {
+                        $key = 'filament-max-broadcasts::broadcasts.consent_table.source_values.'.$state;
+                        $label = Lang::get($key);
+
+                        return is_string($label) && $label !== $key ? $label : $state;
+                    }),
                 TextColumn::make('created_at')
                     ->label(__('filament-max-broadcasts::broadcasts.consent_table.created_at'))
                     ->dateTime('d.m.Y H:i')

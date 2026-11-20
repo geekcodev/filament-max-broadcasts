@@ -79,7 +79,7 @@ MAX). Пока теги `v2.0.0` не выпущены, ветка `new` ста�
 - **Соответствие формулировки запроса и ответа** (не додумывай за пользователя):
 
   | Запрос пользователя | Что делаешь                                                                                |
-                |--------------------|--------------------------------------------------------------------------------------------|
+                  |--------------------|--------------------------------------------------------------------------------------------|
   | «краткий текст коммита», «напиши коммит-сообщение», «subject» | Одна строка — head, без body, по Conventional Commits, по всем изменениям ветки. Коммит не создаёшь |
   | «текст коммита» без уточнений | То же самое: краткий head без body                                                               |
   | «полный текст коммита», «с body» | Head + body с переносами по 100 символов                                                        |
@@ -182,7 +182,7 @@ src/
   Enums/
     BroadcastStatus.php                scheduled|running|completed|cancelled|failed
     BroadcastRecipientStatus.php       pending|sent|failed
-    BroadcastConsentAction.php         opt_in|opt_out (ответы на запрос согласия)
+    BroadcastConsentAction.php         pending|opt_in|opt_out (запрос отправлен / ответы на запрос согласия)
     BroadcastTypes/
       News.php, Promo.php              типы рассылок — backed-enum'ы, реализующие BroadcastTypeContract
   Contracts/BroadcastTypeContract.php  контракт типа рассылки (label/buttonRows/badgeColor)
@@ -192,7 +192,7 @@ src/
     BroadcastRecipient.php             max_broadcast_recipients (broadcast(), maxChat())
     BroadcastAttachment.php            max_broadcast_attachments (broadcast(), uploadType)
     BroadcastSegment.php               max_broadcast_segments — именованные группы чатов (chat_ids JSON, chat_count)
-    BroadcastConsent.php               max_broadcast_consents — факт opt_in/opt_out по паре (segment_id, chat_id)
+    BroadcastConsent.php               max_broadcast_consents — факт pending/opt_in/opt_out по паре (segment_id, chat_id)
   Jobs/
     SendBroadcastJob.php               очередь рассылки: лок, батчи, ретраи, отмена, счётчики
     SendConsentRequestsJob.php         очередь запроса согласия: лок, пере-резолв кандидатов, батчи
@@ -221,6 +221,7 @@ src/
     AttachmentFile.php                локальный файл для uploadMedia: путь с локального диска или временная копия
                                       из объектного хранилища с очисткой после отправки
     SegmentConsentRule.php            серверная проверка: у выбранных сегментов есть согласившиеся получатели
+    QueueLockTtl.php                  TTL лока очереди: max(queue.lock_ttl_seconds, queue.timeout) + 60
   Resources/
     BroadcastResource.php              Filament-ресурс «Рассылки»
     BroadcastSegmentResource.php       Filament-ресурс «Сегменты» (список/создание/просмотр/редактирование)
@@ -321,6 +322,11 @@ Filament-компонентах. `composer.lock`, `.phpunit.cache/`, `.phpstan-c
   `->segmentResource()` / `->consentResource()`). Права (строки, `$user->can(...)`, совместимо с
   spatie/laravel-permission и Gate): `permissions.view` (`broadcasts.view`), `permissions.create` (`broadcasts.create`),
   `permissions.manage` (`broadcasts.manage`).
+- **Кнопки страниц**: действия уровня страницы (header/form actions) оформляются `->outlined()` и с иконкой. На
+  страницах создания рассылки и сегмента `canCreateAnother()` возвращает `false`, поэтому кнопки «Создать и создать ещё»
+  нет; создание идёт через «Создать».
+- **Редиректы**: после «Создать» на страницах создания рассылки и сегмента и после «Сохранить» при правке сегмента
+  страница возвращает на список (`getRedirectUrl()` → `index`), а не на просмотр и не остаётся на форме.
 - **Источник чатов**: `BroadcastRecipientsResolver` — источник списка `MaxChat` для рассылки и опроса согласия (активные
   чаты, дедуп по `chat_id`, сортировка по `last_activity_at`). Точечная выборка идёт через
   `resolveForChatIds(list<int>)`: штатный резолвер читает только запрошенные id и подгружает пользователей
@@ -348,12 +354,14 @@ Filament-компонентах. `composer.lock`, `.phpunit.cache/`, `.phpstan-c
   расписании). Текст санитизируется `BroadcastTextSanitizer->sanitize()` при создании; невалидное вложение
   (несуществующий
   `UploadType`/пустой path) — `InvalidArgumentException 'Invalid broadcast attachment #%d.'`.
-- **Отправка**: `SendBroadcastJob` — `Cache::lock("broadcast:{id}")`, статус `running`, батчи по `queue.batch_size`
-  (25) с проверкой отмены и обновлением счётчиков, `sendTo()` через `BroadcastSender->send(new Recipient(chatId,
-  userId), toMaxHtml(text), $media, type)`, где `$media` — `list<array{upload_type, path}>` из вложений рассылки; по
-  завершении — `completed` + `BroadcastCompleted`. `failed()` → `failed`. Лок защищает от повторной отправки только при
-  общем для всех воркеров хранилище кэша (redis/database/memcached): на `file`/`array` два процесса возьмут одну
-  рассылку — gotcha 15.
+- **Отправка**: `SendBroadcastJob` — `Cache::lock("broadcast:{id}", QueueLockTtl::seconds())`, статус `running`, батчи
+  по
+  `queue.batch_size` (25) с проверкой отмены и обновлением счётчиков, `sendTo()` через `BroadcastSender->send(new
+  Recipient(chatId, userId), toMaxHtml(text), $media, type)`, где `$media` — `list<array{upload_type, path}>` из
+  вложений рассылки; по завершении — `completed` + `BroadcastCompleted`. `failed()` → `failed`. TTL лока —
+  `max(queue.lock_ttl_seconds, queue.timeout) + 60` (`Support\QueueLockTtl`), иначе долгая отправка теряет лок раньше,
+  чем закончит; тот же TTL у опроса согласия. Лок защищает от повторной отправки только при общем для всех воркеров
+  хранилище кэша (redis/database/memcached): на `file`/`array` два процесса возьмут одну рассылку — gotcha 15.
 - **BroadcastSender** — единственная точка отправки рассылки: загрузка медиавложений (картинки/видео/файлы через
   `uploadMedia`, DTO вложения по `UploadType`), кнопки-диплинки (`Keyboard`/`LinkButton`/`CallbackButton`) от
   `BroadcastTypeContract::buttonRows()`, сообщение с `format=html`. Ядро принимает только локальный путь, поэтому файл
@@ -390,7 +398,10 @@ Filament-компонентах. `composer.lock`, `.phpunit.cache/`, `.phpstan-c
   (`ApiClient::deleteMessage`; при ошибке — fallback `editMessage` без кнопок), затем
   `ApiClient::answerCallback` и подтверждение в чат. Одна актуальная запись на пару `(segment_id, chat_id)`;
   `answeredChatIds(segmentId)` — дедуп ответивших в этом сегменте (их повторно не опрашивают, проигнорировавших — да).
-  Журнал ответов — `BroadcastConsentResource` (read-only: `canCreate()`/
+  Каждая успешная отправка запроса фиксируется записью `pending` (`ConsentService::requestSent`/`requestSentForSegment`,
+  `source = request`): джоба передаёт уже полученный сегмент и не перечитывает его на каждого получателя. Журнал
+  показывает, кому запрос ушёл и кто ещё не ответил, ответ перезаписывает запись, а `pending` ответом не считается.
+  Журнал согласий — `BroadcastConsentResource` (read-only: `canCreate()`/
   `canEdit()` → `false`) с фильтрами по сегменту (включая `none` — записи удалённых сегментов) и действию. При удалении
   сегмента согласия остаются с `segment_id = null` (FK `nullOnDelete`, колонка nullable — gotcha 28).
 - **Таблицы**: `max_broadcasts`, `max_broadcast_recipients`, `max_broadcast_attachments`, `max_broadcast_segments`,
@@ -443,7 +454,7 @@ Xdebug включён и отчёт покрытия строится без д�
 3. **Статика**: `composer analyse` (PHPStan level max) → 0 ошибок.
 4. **Тесты**: `composer test` (PHPUnit) → зелёные (failOnRisky/failOnWarning).
 5. **Покрытие**: `composer coverage` → ≥порога строк (`scripts/check-coverage.php`). **Порог 95%** — измеренный факт на
-   текущем состоянии кода 96.71% строк (87.82% методов), то есть запас ~1.6 процентного пункта. Это храповик: при
+   текущем состоянии кода 96.81% строк (88.49% методов), то есть запас ~1.8 процентного пункта. Это храповик: при
    добавлении тестов порог можно поднимать, понижать его вниз, чтобы «покрасить» Gate, нельзя (gotcha 18).
 6. **Audit**: `composer security-audit` → 0 уязвимостей.
 7. **Проверка в условиях CI**: тот же Gate целиком в чистой копии дерева без `vendor/` и `composer.lock`, со свежей
@@ -548,7 +559,9 @@ Xdebug включён и отчёт покрытия строится без д�
     `coverage: xdebug` и `XDEBUG_MODE=coverage`.
 15. **Лок джобы держится на кэше**: `Cache::lock("broadcast:{id}")` и `Cache::lock('consent:send-request')` координируют
     воркеры только на общем хранилище (redis/database/memcached). На `file`/`array` в продакшене рассылку отправят два
-    процесса параллельно, а счётчики разъедутся. Требование к хосту, а не к пакету, — но проверяй конфиг перед релизом.
+    процесса параллельно, а счётчики разъедутся. TTL лока считает `Support\QueueLockTtl`:
+    `max(queue.lock_ttl_seconds, queue.timeout) + 60`, то есть долгая отправка не теряет лок на середине, а при жёстком
+    падении воркера лок держится до этого TTL. Требование к хосту, а не к пакету, — но проверяй конфиг перед релизом.
 16. **Ассеты вендорной `MaxChat`**: у модели `laravel-max-client` нет `@property`, поэтому `status`, `chat_type`,
     `last_activity_at` читаются через `getAttribute()` с локальным `@var` (иначе PHPStan level max не проходит). Не
     «чини» это `@phpstan-ignore` в baseline — это маскировка production-ошибки.
@@ -556,7 +569,7 @@ Xdebug включён и отчёт покрытия строится без д�
     (`assertCanSeeTableRecords`, `assertActionVisible` и подобные); production-ошибки в baseline не добавлять. В
     `phpstan.neon` стоит `reportUnmatchedIgnoredErrors: false`: в CI Filament/Livewire/Larastan новее, часть хелперных
     ошибок там просто не возникает, и незакрытая запись иначе роняет анализ при зелёном коде.
-18. **Порог покрытия 95% — храповик, а не цель**: сейчас 96.71% строк (87.82% методов), запас ~1.7 процентного пункта.
+18. **Порог покрытия 95% — храповик, а не цель**: сейчас 96.81% строк (88.49% методов), запас ~1.8 процентного пункта.
     Понижать порог вниз, чтобы «покрасить» Gate, нельзя. Непокрытыми остаются защитные ветки, которые без моков
     финальных классов недостижимы: `BroadcastTextSanitizer` (HTMLDocument бросает исключение, пустой body, `unwrap` без
     родителя), а также редкие ветки `BroadcastForm`, `SendConsentRequestsJob`, `BroadcastSegmentResource`,
@@ -633,12 +646,14 @@ Xdebug включён и отчёт покрытия строится без д�
     `UploadedFile::fake()`.
 
 30. **Сегмент — аудитория, а не список согласий.** Ответы не меняют `chat_ids` сегмента: `ConsentService::record()`
-    только пишет факт в `max_broadcast_consents`. Опрос идёт получателям сегмента без ответа, рассылка по сегменту —
-    только `opt_in` (`optedInChatIds`); поэтому «молчание» и отказ рассылку не получают, а ответившие запрос повторно не
-    получают. Диалоги выбираются только сегментами; поле получателей — только группы и каналы, явный диалог в `chatIds`
-    игнорируется. `SegmentConsentRule` требует согласившихся для выбранных сегментов, сервис дополнительно бросает
-    `InvalidArgumentException` на пустом резолве. Не «восстанавливай» старую пересборку `chat_ids` из таблицы согласий:
-    она стирала вручную добавленных получателей и ломала повторный опрос.
+    только пишет факт в `max_broadcast_consents`. Запись `pending` — это отправленный запрос, а не ответ:
+    `answeredChatIds()` её не учитывает, поэтому такие получатели остаются кандидатами и при повторном нажатии получают
+    запрос снова, а в журнале видно, кто ещё не ответил. Опрос идёт получателям сегмента без ответа, рассылка по
+    сегменту — только `opt_in` (`optedInChatIds`); поэтому «молчание» и отказ рассылку не получают, а ответившие запрос
+    повторно не получают. Диалоги выбираются только сегментами; поле получателей — только группы и каналы, явный диалог
+    в `chatIds` игнорируется. `SegmentConsentRule` требует согласившихся для выбранных сегментов, сервис дополнительно
+    бросает `InvalidArgumentException` на пустом резолве. Не «восстанавливай» старую пересборку `chat_ids` из таблицы
+    согласий: она стирала вручную добавленных получателей и ломала повторный опрос.
 
 ## 11. Чек-лист перед завершением задачи
 

@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace GeekCo\FilamentMaxBroadcasts\Tests\Unit\Jobs;
 
+use GeekCo\FilamentMaxBroadcasts\Enums\BroadcastConsentAction;
 use GeekCo\FilamentMaxBroadcasts\Jobs\SendConsentRequestsJob;
+use GeekCo\FilamentMaxBroadcasts\Models\BroadcastConsent;
 use GeekCo\FilamentMaxBroadcasts\Models\BroadcastSegment;
 use GeekCo\FilamentMaxBroadcasts\Services\BroadcastRecipientsResolver;
 use GeekCo\FilamentMaxBroadcasts\Services\BroadcastSender;
@@ -17,6 +19,7 @@ use GeekCo\LaravelMaxClient\Enums\MaxChatStatus;
 use GeekCo\MaxPhpClient\Dto\Recipient;
 use GeekCo\MaxPhpClient\Enum\ChatType;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Mockery;
 use RuntimeException;
 
@@ -80,7 +83,61 @@ class SendConsentRequestsJobTest extends TestCase
             Mockery::type('array'),
         );
 
-        (new SendConsentRequestsJob($segment->id))->handle($sender, $this->service(), $this->sanitizer());
+        (new SendConsentRequestsJob($segment->id))->handle($sender, $this->service(), $this->sanitizer(), $this->consent);
+
+        $pending = BroadcastConsent::query()->where('chat_id', 11)->first();
+        self::assertNotNull($pending);
+        self::assertSame(BroadcastConsentAction::Pending, $pending->action);
+        self::assertSame('request', $pending->source);
+        self::assertSame(1, $pending->user_id);
+
+        $answered = BroadcastConsent::query()->where('chat_id', 22)->first();
+        self::assertNotNull($answered);
+        self::assertSame(BroadcastConsentAction::OptIn, $answered->action);
+        self::assertSame('callback', $answered->source);
+        self::assertSame(2, BroadcastConsent::query()->count());
+    }
+
+    public function testHandleLooksUpSegmentAtMostTwicePerRun(): void
+    {
+        $this->dialog(11, 1);
+        $this->dialog(22, 2);
+        $this->dialog(33, 3);
+        $segment = $this->segment('VIP', [11, 22, 33]);
+
+        $sender = $this->mock(BroadcastSender::class);
+        $sender->shouldReceive('send')->times(3);
+
+        DB::flushQueryLog();
+        DB::enableQueryLog();
+
+        (new SendConsentRequestsJob($segment->id))->handle($sender, $this->service(), $this->sanitizer(), $this->consent);
+
+        $segmentQueries = array_filter(
+            DB::getQueryLog(),
+            static fn (array $query): bool => str_contains((string) $query['query'], 'max_broadcast_segments'),
+        );
+
+        self::assertLessThanOrEqual(2, count($segmentQueries));
+    }
+
+    public function testHandleKeepsSinglePendingRowOnRepeatedRequest(): void
+    {
+        $this->dialog(11, 1);
+        $segment = $this->segment('VIP', [11]);
+
+        $sender = $this->mock(BroadcastSender::class);
+        $sender->shouldReceive('send')->twice();
+
+        $job = new SendConsentRequestsJob($segment->id);
+        $job->handle($sender, $this->service(), $this->sanitizer(), $this->consent);
+        $job->handle($sender, $this->service(), $this->sanitizer(), $this->consent);
+
+        self::assertSame(1, BroadcastConsent::query()->count());
+
+        $pending = BroadcastConsent::query()->first();
+        self::assertNotNull($pending);
+        self::assertSame(BroadcastConsentAction::Pending, $pending->action);
     }
 
     public function testHandleSendsButtonsWithSegmentPayloads(): void
@@ -103,7 +160,7 @@ class SendConsentRequestsJobTest extends TestCase
             }),
         );
 
-        (new SendConsentRequestsJob($segment->id))->handle($sender, $this->service(), $this->sanitizer());
+        (new SendConsentRequestsJob($segment->id))->handle($sender, $this->service(), $this->sanitizer(), $this->consent);
     }
 
     public function testHandleDoesNothingWhenEveryoneAnswered(): void
@@ -115,7 +172,7 @@ class SendConsentRequestsJobTest extends TestCase
         $sender = $this->mock(BroadcastSender::class);
         $sender->shouldNotReceive('send');
 
-        (new SendConsentRequestsJob($segment->id))->handle($sender, $this->service(), $this->sanitizer());
+        (new SendConsentRequestsJob($segment->id))->handle($sender, $this->service(), $this->sanitizer(), $this->consent);
     }
 
     public function testHandleDoesNothingForUnknownSegment(): void
@@ -125,7 +182,7 @@ class SendConsentRequestsJobTest extends TestCase
         $sender = $this->mock(BroadcastSender::class);
         $sender->shouldNotReceive('send');
 
-        (new SendConsentRequestsJob(999))->handle($sender, $this->service(), $this->sanitizer());
+        (new SendConsentRequestsJob(999))->handle($sender, $this->service(), $this->sanitizer(), $this->consent);
     }
 
     public function testHandleSkipsWhenLockIsHeldForSameSegment(): void
@@ -140,10 +197,26 @@ class SendConsentRequestsJobTest extends TestCase
             $sender = $this->mock(BroadcastSender::class);
             $sender->shouldNotReceive('send');
 
-            (new SendConsentRequestsJob($segment->id))->handle($sender, $this->service(), $this->sanitizer());
+            (new SendConsentRequestsJob($segment->id))->handle($sender, $this->service(), $this->sanitizer(), $this->consent);
         } finally {
             $lock->release();
         }
+    }
+
+    public function testHandleKeepsSendingWhenJournalWriteFails(): void
+    {
+        $this->dialog(11, 1);
+        $segment = $this->segment('VIP', [11]);
+
+        $sender = $this->mock(BroadcastSender::class);
+        $sender->shouldReceive('send')->once();
+
+        $consents = $this->mock(ConsentService::class);
+        $consents->shouldReceive('requestSentForSegment')->once()->andThrow(new RuntimeException('journal down'));
+
+        (new SendConsentRequestsJob($segment->id))->handle($sender, $this->service(), $this->sanitizer(), $consents);
+
+        self::assertSame(0, BroadcastConsent::query()->count());
     }
 
     public function testHandleSwallowsRecipientSendErrors(): void
@@ -157,7 +230,8 @@ class SendConsentRequestsJobTest extends TestCase
             ->twice()
             ->andThrow(new RuntimeException('MAX down'));
 
-        (new SendConsentRequestsJob($segment->id))->handle($sender, $this->service(), $this->sanitizer());
+        (new SendConsentRequestsJob($segment->id))->handle($sender, $this->service(), $this->sanitizer(), $this->consent);
 
+        self::assertSame(0, BroadcastConsent::query()->count());
     }
 }

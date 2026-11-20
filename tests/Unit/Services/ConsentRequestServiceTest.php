@@ -62,6 +62,17 @@ class ConsentRequestServiceTest extends TestCase
         self::assertSame([11], $this->service->eligibleChatIds($segment));
     }
 
+    public function testPendingRequestDoesNotCountAsAnswer(): void
+    {
+        $this->dialog(11, 1);
+        $this->dialog(22, 2);
+        $segment = $this->segment('VIP', [11, 22]);
+
+        $this->consent->requestSent(11, 1, $segment->id);
+
+        self::assertSame([11, 22], $this->service->eligibleChatIds($segment));
+    }
+
     public function testNoAnswerAlsoExcludesChatsFromRequests(): void
     {
         $this->dialog(11, 1);

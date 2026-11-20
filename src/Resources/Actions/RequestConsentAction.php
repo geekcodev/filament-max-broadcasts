@@ -22,6 +22,7 @@ class RequestConsentAction
             ->label(__('filament-max-broadcasts::broadcasts.actions.request_consent'))
             ->icon('heroicon-o-check-badge')
             ->color('info')
+            ->outlined()
             ->requiresConfirmation()
             ->modalHeading(__('filament-max-broadcasts::broadcasts.actions.request_consent_heading'))
             ->modalDescription(__('filament-max-broadcasts::broadcasts.actions.request_consent_description'))

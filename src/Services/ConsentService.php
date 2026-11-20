@@ -15,6 +15,9 @@ use GeekCo\FilamentMaxBroadcasts\Models\BroadcastSegment;
  * (chat_ids) задаётся вручную и ответами не меняется: сегмент — это аудитория, которую
  * опрашивают, а рассылка по сегменту уходит только тем, кто ответил opt_in. Поэтому
  * список согласившихся вычисляется из таблицы согласий, а не хранится в самом сегменте.
+ *
+ * Запись pending означает только отправленный запрос: она видна в журнале согласий,
+ * но ответом не считается и не мешает повторному опросу.
  */
 class ConsentService
 {
@@ -32,6 +35,55 @@ class ConsentService
     public function optIn(int $chatId, ?int $userId, int $segmentId): void
     {
         $this->record($chatId, $userId, BroadcastConsentAction::OptIn, $segmentId);
+    }
+
+    /**
+     * Фиксирует отправленный запрос согласия. Ответ (opt_in/opt_out) запросом не перезаписывается.
+     */
+    public function requestSent(int $chatId, ?int $userId, int $segmentId): void
+    {
+        $segment = $this->findSegment($segmentId);
+
+        if ($segment === null) {
+            return;
+        }
+
+        $this->requestSentForSegment($segment, $chatId, $userId);
+    }
+
+    /**
+     * То же, что requestSent(), но без повторного чтения сегмента: джоба уже держит модель.
+     */
+    public function requestSentForSegment(BroadcastSegment $segment, int $chatId, ?int $userId): void
+    {
+        $modelClass = $this->consentModel;
+
+        // Обновляем только pending-строку: ответ (opt_in/opt_out) запросом не перезаписывается.
+        $updated = $modelClass::query()
+            ->where('segment_id', $segment->getKey())
+            ->where('chat_id', $chatId)
+            ->where('action', BroadcastConsentAction::Pending->value)
+            ->update(['user_id' => $userId, 'source' => 'request']);
+
+        if ($updated > 0) {
+            return;
+        }
+
+        // Строка есть и содержит ответ — оставляем её как есть.
+        if ($modelClass::query()
+            ->where('segment_id', $segment->getKey())
+            ->where('chat_id', $chatId)
+            ->exists()) {
+            return;
+        }
+
+        $modelClass::query()->create([
+            'segment_id' => $segment->getKey(),
+            'chat_id' => $chatId,
+            'user_id' => $userId,
+            'action' => BroadcastConsentAction::Pending,
+            'source' => 'request',
+        ]);
     }
 
     public function optOut(int $chatId, ?int $userId, int $segmentId): void
@@ -109,7 +161,8 @@ class ConsentService
      * chat_id всех, кто ответил (opt_in или opt_out) в сегменте.
      *
      * Источник дедупа для повторного запроса: ответившие запрос больше не получают,
-     * проигнорировавшие — получают. Записи других сегментов не участвуют.
+     * проигнорировавшие — получают. Записи pending — это отправленные запросы, а не
+     * ответы, поэтому они сюда не попадают. Записи других сегментов не участвуют.
      *
      * @return list<int>
      */
@@ -125,6 +178,7 @@ class ConsentService
 
         return array_values($modelClass::query()
             ->where('segment_id', $segment->getKey())
+            ->where('action', '!=', BroadcastConsentAction::Pending->value)
             ->pluck('chat_id')
             ->map(static fn (mixed $chatId): int => is_scalar($chatId) ? (int) $chatId : 0)
             ->all());

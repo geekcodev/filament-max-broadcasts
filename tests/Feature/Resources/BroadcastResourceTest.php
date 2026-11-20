@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace GeekCo\FilamentMaxBroadcasts\Tests\Feature\Resources;
 
+use Filament\Actions\Action;
 use Filament\Forms\Components\FileUpload;
 use GeekCo\FilamentMaxBroadcasts\Enums\BroadcastRecipientStatus;
 use GeekCo\FilamentMaxBroadcasts\Enums\BroadcastStatus;
@@ -85,7 +86,8 @@ class BroadcastResourceTest extends TestCase
                 'recipient_chat_ids' => [11],
             ])
             ->call('create')
-            ->assertHasNoFormErrors();
+            ->assertHasNoFormErrors()
+            ->assertRedirect(BroadcastResource::getUrl('index'));
 
         /** @var Broadcast $broadcast */
         $broadcast = Broadcast::query()->firstOrFail();
@@ -97,6 +99,49 @@ class BroadcastResourceTest extends TestCase
         self::assertSame(1, $broadcast->recipients()->count());
 
         Queue::assertPushed(SendBroadcastJob::class);
+    }
+
+    public function testCreatePageUsesOutlinedActionsWithIconsAndWithoutCreateAnother(): void
+    {
+        $this->actingAs($this->adminUser());
+
+        /** @var CreateBroadcast $page */
+        $page = Livewire::test(CreateBroadcast::class)->instance();
+
+        $actions = $this->formActions($page);
+
+        self::assertArrayNotHasKey('createAnother', $actions);
+        self::assertArrayHasKey('create', $actions);
+
+        self::assertTrue($actions['create']->isOutlined());
+        self::assertSame('heroicon-o-plus', $actions['create']->getIcon());
+
+        self::assertTrue($actions['cancel']->isOutlined());
+        self::assertSame('heroicon-o-x-mark', $actions['cancel']->getIcon());
+    }
+
+    /**
+     * @return array<string, Action>
+     */
+    private function formActions(object $page): array
+    {
+        $method = new \ReflectionMethod($page, 'getFormActions');
+        $result = $method->invoke($page);
+        $actions = [];
+
+        foreach (is_array($result) ? $result : [] as $component) {
+            if (! $component instanceof Action) {
+                continue;
+            }
+
+            $name = $component->getName();
+
+            if ($name !== null) {
+                $actions[$name] = $component;
+            }
+        }
+
+        return $actions;
     }
 
     public function testCreateBroadcastAcceptsWhitelistedFileType(): void
@@ -157,7 +202,9 @@ class BroadcastResourceTest extends TestCase
         Livewire::test(ListBroadcasts::class)
             ->assertSuccessful()
             // @phpstan-ignore method.notFound
-            ->assertActionVisible('create');
+            ->assertActionVisible('create')
+            // @phpstan-ignore method.notFound
+            ->assertActionExists('create', static fn (Action $action): bool => $action->isOutlined());
     }
 
     public function testCreateActionIsHiddenWithoutCreatePermission(): void
