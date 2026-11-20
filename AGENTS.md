@@ -79,7 +79,7 @@ MAX). Пока теги `v2.0.0` не выпущены, ветка `new` ста�
 - **Соответствие формулировки запроса и ответа** (не додумывай за пользователя):
 
   | Запрос пользователя | Что делаешь                                                                                |
-                      |--------------------|--------------------------------------------------------------------------------------------|
+                        |--------------------|--------------------------------------------------------------------------------------------|
   | «краткий текст коммита», «напиши коммит-сообщение», «subject» | Одна строка — head, без body, по Conventional Commits, по всем изменениям ветки. Коммит не создаёшь |
   | «текст коммита» без уточнений | То же самое: краткий head без body                                                               |
   | «полный текст коммита», «с body» | Head + body с переносами по 100 символов                                                        |
@@ -214,7 +214,7 @@ src/
     BroadcastTypeDefaults.php          трейт дефолтного поведения типов (lang-подпись, кнопки из per_type)
     ConsentButtons.php                 кнопки запроса согласия: payload consent:<segmentId>:<action>, тексты из конфига
     ChatSelectionField.php             мультивыбор чатов: серверный поиск (лимит 50), области dialogsOnly /
-                                      nonDialogsOnly, вариант «Выбрать всех» (служебное значение + dehydrate)
+                                      nonDialogsOnly, подписи и бейджи
     BroadcastSegmentOptions.php        варианты селекта сегментов: только с получателями, бейдж числа получателей
     DialogsOnlyRule.php                серверная проверка: в сегмент только диалоги
     ChatRegistry.php                   единственный адаптер к реестру чатов 1.2 (связи chatUsers/maxUsers, title,
@@ -231,8 +231,8 @@ src/
     Schemas/{BroadcastForm,BroadcastSegmentForm,BroadcastSegmentInfolist}.php
     Tables/{BroadcastsTable,BroadcastSegmentsTable,BroadcastConsentsTable}.php
     Pages/{CreateBroadcast,ListBroadcasts,ViewBroadcast,ListBroadcastSegments,CreateBroadcastSegment,EditBroadcastSegment,
-           ViewBroadcastSegment,ListBroadcastConsents}.php
-    RelationManagers/{BroadcastRecipientsRelationManager,BroadcastConsentsRelationManager}.php
+           ViewBroadcastSegment,ListBroadcastConsents,ManageBroadcastSegmentRecipients,ListBroadcastSegmentConsents}.php
+    RelationManagers/BroadcastRecipientsRelationManager.php
     Actions/RequestConsentAction.php   действие «Запросить согласие» для страницы сегмента и таблицы сегментов
 tests/                                PHPUnit + Orchestra Testbench
   Fixtures/                            AdminPanelProvider, TestUser, OffersType, OffersSegment, миграция users, Gate
@@ -243,7 +243,7 @@ tests/                                PHPUnit + Orchestra Testbench
   Unit/                                enums, models, sanitizer, resolver, types, sender, service, job, consent, plugin,
                                       адаптер реестра чатов, метаданные ресурса согласий
   Feature/                             BroadcastResource + BroadcastSegmentResource + BroadcastConsentResource +
-                                      relation manager получателей
+                                      страницы получателей и согласий сегмента, relation manager получателей
 scripts/check-coverage.php            проверка порога покрытия по build/coverage.xml (дефолт 95% —
                                       тот же, что в composer.json; аргумент переопределяет)
 .github/workflows/ci.yml              один job quality: lint → phpstan → phpunit + coverage gate → audit
@@ -263,9 +263,10 @@ phpstan-baseline.neon                 только test-only записи для
 .env.example                          эталон имён переменных (MAX_PERMISSION_BROADCASTS_*, MAX_BOT_USERNAME, MAX_BROADCASTS_*)
 ```
 
-`resources/views/`, Livewire-компонентов и real-time (Echo/Reverb) на этом этапе **нет** — рассылки целиком на
-Filament-компонентах. `composer.lock`, `.phpunit.cache/`, `.phpstan-cache/`, `vendor/`, `build/` — в `.gitignore`;
-рабочая память `.agents/` в git, но исключена из архива пакета через `.gitattributes`.
+`resources/views/pages/` содержит Blade-обёртки вкладок «Получатели» и «Согласия» сегмента; Livewire-компонентов и
+real-time (Echo/Reverb) по-прежнему нет — интерфейс целиком на Filament-компонентах. `composer.lock`, `.phpunit.cache/`,
+`.phpstan-cache/`, `vendor/`, `build/` — в `.gitignore`; рабочая память `.agents/` в git, но исключена из архива пакета
+через `.gitattributes`.
 
 ### 4.1. Прогресс, планы и release-notes
 
@@ -405,8 +406,13 @@ Filament-компонентах. `composer.lock`, `.phpunit.cache/`, `.phpstan-c
   `source = request`): джоба передаёт уже полученный сегмент и не перечитывает его на каждого получателя. Журнал
   показывает, кому запрос ушёл и кто ещё не ответил, ответ перезаписывает запись, а `pending` ответом не считается.
   Журнал согласий — `BroadcastConsentResource` (read-only: `canCreate()`/
-  `canEdit()` → `false`) с фильтрами по сегменту (включая `none` — записи удалённых сегментов) и действию. При удалении
-  сегмента согласия остаются с `segment_id = null` (FK `nullOnDelete`, колонка nullable — gotcha 28).
+  `canEdit()` → `false`) с фильтрами по сегменту (включая `none` — записи удалённых сегментов) и действию; на странице
+  сегмента тот же журнал открывается вкладкой «Согласия» (`ListBroadcastSegmentConsents`). При удалении сегмента
+  согласия остаются с `segment_id = null` (FK `nullOnDelete`, колонка nullable — gotcha 28).
+- **Получатели сегмента**: форма сегмента содержит только блок «Основное» (название, описание). Получатели управляются
+  на вкладке «Получатели» (`ManageBroadcastSegmentRecipients`): таблица активных диалогов с поиском, сортировкой и
+  фильтром «Только выбранные», чекбоксы, «Выбрать всех» по всем активным диалогам и счётчик выбранных. Сохранение пишет
+  `chat_ids` и сохраняет старые не-диалоговые/неактивные ID, чтобы не терять данные сегмента.
 - **Таблицы**: `max_broadcasts`, `max_broadcast_recipients`, `max_broadcast_attachments`, `max_broadcast_segments`,
   `max_broadcast_consents` и pivot `max_broadcast_segment` (структура — наследие `broadcasts`/`broadcast_recipients` из
   хоста, но с префиксом `max_` во избежание конфликтов; вложения — отдельная таблица по несколько на рассылку). FK
@@ -457,7 +463,7 @@ Xdebug включён и отчёт покрытия строится без д�
 3. **Статика**: `composer analyse` (PHPStan level max) → 0 ошибок.
 4. **Тесты**: `composer test` (PHPUnit) → зелёные (failOnRisky/failOnWarning).
 5. **Покрытие**: `composer coverage` → ≥порога строк (`scripts/check-coverage.php`). **Порог 95%** — измеренный факт на
-   текущем состоянии кода 96.81% строк (88.49% методов), то есть запас ~1.8 процентного пункта. Это храповик: при
+   текущем состоянии кода 96.03% строк (86.84% методов), то есть запас ~1.0 процентного пункта. Это храповик: при
    добавлении тестов порог можно поднимать, понижать его вниз, чтобы «покрасить» Gate, нельзя (gotcha 18).
 6. **Audit**: `composer security-audit` → 0 уязвимостей.
 7. **Проверка в условиях CI**: тот же Gate целиком в чистой копии дерева без `vendor/` и `composer.lock`, со свежей
@@ -572,7 +578,7 @@ Xdebug включён и отчёт покрытия строится без д�
     (`assertCanSeeTableRecords`, `assertActionVisible` и подобные); production-ошибки в baseline не добавлять. В
     `phpstan.neon` стоит `reportUnmatchedIgnoredErrors: false`: в CI Filament/Livewire/Larastan новее, часть хелперных
     ошибок там просто не возникает, и незакрытая запись иначе роняет анализ при зелёном коде.
-18. **Порог покрытия 95% — храповик, а не цель**: сейчас 96.81% строк (88.49% методов), запас ~1.8 процентного пункта.
+18. **Порог покрытия 95% — храповик, а не цель**: сейчас 96.03% строк (86.84% методов), запас ~1.0 процентного пункта.
     Понижать порог вниз, чтобы «покрасить» Gate, нельзя. Непокрытыми остаются защитные ветки, которые без моков
     финальных классов недостижимы: `BroadcastTextSanitizer` (HTMLDocument бросает исключение, пустой body, `unwrap` без
     родителя), а также редкие ветки `BroadcastForm`, `SendConsentRequestsJob`, `BroadcastSegmentResource`,
@@ -619,8 +625,9 @@ Xdebug включён и отчёт покрытия строится без д�
     бейдже —
     `Services\BroadcastSegmentRecipients::consentedCounts()`). Сегменту нельзя добавить не-диалог: проверка
     `Support\DialogsOnlyRule` на сервере и `dialogsOnly: true` в
-    `ChatSelectionField` (варианты, поиск, подписи, вариант «Выбрать всех» только в сегменте). Старые группы в сегментах
-    не удаляются, но не получают рассылку по сегменту и помечены предупреждением.
+    `ChatSelectionField` (варианты, поиск, подписи). В сегмент нельзя добавить не-диалог: форма сегмента больше не
+    содержит селект чатов, получатели выбираются на вкладке «Получатели» из активных диалогов; старые группы в
+    `chat_ids` сохраняются, но не получают рассылку по сегменту и помечены предупреждением.
 
 28. **`nullOnDelete()` требует nullable-колонку.** `foreignId('segment_id')->constrained(...)->nullOnDelete()` без
     `nullable()` не даёт удалить родителя: SQLite и MySQL отклоняют запись NULL (`NOT NULL constraint failed`), а на

@@ -76,6 +76,8 @@ class BroadcastConsentsTable
         }
 
         return $table
+            ->modelLabel(__('filament-max-broadcasts::broadcasts.consent_table.model_label'))
+            ->pluralModelLabel(__('filament-max-broadcasts::broadcasts.consent_table.plural_model_label'))
             ->emptyStateHeading(__('filament-max-broadcasts::broadcasts.consent_table.empty_heading'))
             ->emptyStateDescription(__('filament-max-broadcasts::broadcasts.consent_table.empty_description'))
             ->modifyQueryUsing(

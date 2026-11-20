@@ -43,10 +43,6 @@ return [
         'unknown' => 'Чат',
     ],
 
-    'chat_selection' => [
-        'select_all' => 'Выбрать всех',
-    ],
-
     'resource' => [
         'label' => 'Рассылка',
         'plural_label' => 'Рассылки',
@@ -132,9 +128,14 @@ return [
         'form' => [
             'name' => 'Название',
             'description' => 'Описание',
-            'recipients' => 'Получатели',
-            'recipients_helper' => 'В сегмент можно добавить только диалоги. Группы и каналы выбираются в получателях рассылки.',
+            'main_section' => 'Основное',
             'dialogs_only_error' => 'В сегмент можно добавить только диалоги.',
+        ],
+        'tabs' => [
+            'view' => 'Просмотр',
+            'main' => 'Основное',
+            'recipients' => 'Получатели',
+            'consents' => 'Согласия',
         ],
         'table' => [
             'id' => 'ID',
@@ -149,12 +150,34 @@ return [
             'recipients_section' => 'Получатели',
             'recipients_section_description' => 'Чаты, добавленные в сегмент; рассылка уходит согласившимся диалогам.',
             'no_recipients' => 'Получателей нет',
-            'chat_fallback' => 'Чат :id',
+            'recipients_count' => 'Получателей: :count.',
+            'manage_recipients' => 'Управлять получателями',
             'non_dialog_warning' => 'В сегменте есть группы или каналы: :count. Рассылка по сегменту их не получит.',
+        ],
+        'recipients_page' => [
+            'title' => 'Получатели',
+            'summary' => 'Активных диалогов: :total',
+            'name' => 'Имя чата',
+            'chat_id' => 'ID чата',
+            'last_activity' => 'Последняя активность',
+            'consent' => 'Согласие',
+            'only_selected' => 'Только выбранные',
+            'select_all' => 'Выбрать всех',
+            'clear_selection' => 'Снять выделение',
+            'save' => 'Сохранить выбранных',
+            'saved' => 'Получатели сегмента сохранены: :count',
+            'empty_heading' => 'Диалогов нет',
+            'empty_description' => 'В реестре нет активных диалогов.',
+        ],
+        'consents_page' => [
+            'title' => 'Согласия',
+            'summary' => 'Запросы согласия и ответы получателей этого сегмента',
         ],
     ],
 
     'consent_table' => [
+        'model_label' => 'Согласие',
+        'plural_model_label' => 'Согласия',
         'id' => 'ID',
         'name' => 'Имя чата',
         'anonymous_chat' => 'Чат :id',

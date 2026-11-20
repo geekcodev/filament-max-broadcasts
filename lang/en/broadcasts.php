@@ -43,10 +43,6 @@ return [
         'unknown' => 'Chat',
     ],
 
-    'chat_selection' => [
-        'select_all' => 'Select all',
-    ],
-
     'resource' => [
         'label' => 'Broadcast',
         'plural_label' => 'Broadcasts',
@@ -132,9 +128,14 @@ return [
         'form' => [
             'name' => 'Name',
             'description' => 'Description',
-            'recipients' => 'Recipients',
-            'recipients_helper' => 'Only dialogs can be added to a segment. Groups and channels are picked in the broadcast recipients.',
+            'main_section' => 'Main',
             'dialogs_only_error' => 'Only dialogs can be added to a segment.',
+        ],
+        'tabs' => [
+            'view' => 'View',
+            'main' => 'Main',
+            'recipients' => 'Recipients',
+            'consents' => 'Consents',
         ],
         'table' => [
             'id' => 'ID',
@@ -149,12 +150,34 @@ return [
             'recipients_section' => 'Recipients',
             'recipients_section_description' => 'Chats added to the segment; broadcasts go to the consented dialogs.',
             'no_recipients' => 'No recipients',
-            'chat_fallback' => 'Chat :id',
+            'recipients_count' => 'Recipients: :count.',
+            'manage_recipients' => 'Manage recipients',
             'non_dialog_warning' => 'The segment contains groups or channels: :count. Segment broadcasts will not reach them.',
+        ],
+        'recipients_page' => [
+            'title' => 'Recipients',
+            'summary' => 'Active dialogs: :total',
+            'name' => 'Chat name',
+            'chat_id' => 'Chat ID',
+            'last_activity' => 'Last activity',
+            'consent' => 'Consent',
+            'only_selected' => 'Only selected',
+            'select_all' => 'Select all',
+            'clear_selection' => 'Clear selection',
+            'save' => 'Save selected',
+            'saved' => 'Segment recipients saved: :count',
+            'empty_heading' => 'No dialogs',
+            'empty_description' => 'There are no active dialogs in the registry.',
+        ],
+        'consents_page' => [
+            'title' => 'Consents',
+            'summary' => 'Consent requests and responses of this segment',
         ],
     ],
 
     'consent_table' => [
+        'model_label' => 'Consent',
+        'plural_model_label' => 'Consents',
         'id' => 'ID',
         'name' => 'Chat name',
         'anonymous_chat' => 'Chat :id',

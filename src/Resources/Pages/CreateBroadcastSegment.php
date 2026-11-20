@@ -34,14 +34,14 @@ class CreateBroadcastSegment extends CreateRecord
     }
 
     /**
-     * @param  array{name: string, description?: string|null, chat_ids: list<int>}  $data
+     * @param  array{name: string, description?: string|null}  $data
      */
     protected function handleRecordCreation(array $data): BroadcastSegment
     {
         return BroadcastSegment::query()->create([
             'name' => $data['name'],
             'description' => $data['description'] ?? null,
-            'chat_ids' => array_map('intval', $data['chat_ids']),
+            'chat_ids' => [],
             'created_by' => auth()->id(),
         ]);
     }

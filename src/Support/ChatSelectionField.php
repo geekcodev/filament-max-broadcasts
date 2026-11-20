@@ -13,19 +13,11 @@ use Illuminate\Database\Eloquent\Model;
 
 class ChatSelectionField
 {
-    /**
-     * Служебное значение варианта «Выбрать всех» внутри селекта: при сохранении
-     * разворачивается в список всех активных чатов (см. dehydrateStateUsing).
-     */
-    public const string SELECT_ALL = '__select_all__';
-
     private const OPTION_LIMIT = 50;
 
     private const LABEL_CHUNK = 500;
 
     /**
-     * @param  string|null  $helperText
-     *
      * @throws \InvalidArgumentException если одновременно заданы dialogsOnly и nonDialogsOnly
      */
     public static function make(
@@ -35,7 +27,6 @@ class ChatSelectionField
         bool $required = false,
         bool $dialogsOnly = false,
         bool $nonDialogsOnly = false,
-        bool $withSelectAll = true,
     ): Select {
         if ($dialogsOnly && $nonDialogsOnly) {
             throw new \InvalidArgumentException('Chat selection cannot be both dialogs-only and non-dialogs-only.');
@@ -46,14 +37,11 @@ class ChatSelectionField
             ->helperText($helperText)
             ->multiple()
             ->searchable()
-            ->options(static fn (): array => self::options($dialogsOnly, $nonDialogsOnly, $withSelectAll))
+            ->options(static fn (): array => self::options($dialogsOnly, $nonDialogsOnly))
             ->getSearchResultsUsing(
                 static fn (string $search): array => self::searchResults($search, $dialogsOnly, $nonDialogsOnly),
             )
             ->getOptionLabelsUsing(static fn (array $values): array => self::optionLabels($values))
-            ->dehydrateStateUsing(
-                static fn (mixed $state): array => self::expandState($state, $dialogsOnly, $nonDialogsOnly),
-            )
             ->allowHtml()
             ->required($required)
             ->columnSpanFull();
@@ -66,18 +54,11 @@ class ChatSelectionField
     }
 
     /**
-     * @return array<int|string, string>
+     * @return array<int, string>
      */
-    public static function options(
-        bool $dialogsOnly = false,
-        bool $nonDialogsOnly = false,
-        bool $withSelectAll = true,
-    ): array {
+    public static function options(bool $dialogsOnly = false, bool $nonDialogsOnly = false): array
+    {
         $options = [];
-
-        if ($withSelectAll) {
-            $options[self::SELECT_ALL] = self::selectAllLabel();
-        }
 
         foreach (self::activeChatsQuery($dialogsOnly, $nonDialogsOnly)
             ->limit(self::OPTION_LIMIT)
@@ -118,31 +99,7 @@ class ChatSelectionField
     }
 
     /**
-     * Идентификаторы всех активных чатов (для действия «Выбрать всех»), без лимита вариантов.
-     *
-     * @return list<int>
-     */
-    public static function allIds(bool $dialogsOnly = false, bool $nonDialogsOnly = false): array
-    {
-        $chatsModel = ChatRegistry::model();
-
-        $query = $chatsModel::query()->where('status', MaxChatStatus::Active);
-
-        if ($dialogsOnly) {
-            $query->where('chat_type', ChatType::Dialog->value);
-        } elseif ($nonDialogsOnly) {
-            $query->whereIn('chat_type', [ChatType::Chat->value, ChatType::Channel->value]);
-        }
-
-        return array_values(array_unique(array_map(
-            static fn (mixed $chatId): int => (int) (is_scalar($chatId) ? $chatId : 0),
-            $query->orderByDesc('last_activity_at')->pluck('chat_id')->all(),
-        )));
-    }
-
-    /**
-     * Подписи выбранных значений без лимита вариантов: после «Выбрать всех» все значения
-     * выводятся полностью, а не сырыми ID.
+     * Подписи выбранных значений без лимита вариантов.
      *
      * @param  array<mixed>  $values
      * @return array<int|string, string>
@@ -160,15 +117,6 @@ class ChatSelectionField
 
         $labels = [];
 
-        if (in_array(self::SELECT_ALL, $ids, true)) {
-            $labels[self::SELECT_ALL] = self::selectAllLabel();
-        }
-
-        $ids = array_values(array_filter(
-            $ids,
-            static fn (int|string $value): bool => $value !== self::SELECT_ALL,
-        ));
-
         foreach (array_chunk($ids, self::LABEL_CHUNK) as $chunk) {
             foreach (self::activeChatsQuery()
                 ->whereIn('chat_id', $chunk)
@@ -183,48 +131,6 @@ class ChatSelectionField
         }
 
         return $labels;
-    }
-
-    /**
-     * Раскрывает служебное значение «Выбрать всех» в список чатов.
-     *
-     * @return list<int>
-     */
-    public static function expandState(
-        mixed $state,
-        bool $dialogsOnly = false,
-        bool $nonDialogsOnly = false,
-    ): array {
-        $values = is_array($state) ? $state : [];
-
-        $selectAll = false;
-        $ids = [];
-
-        foreach ($values as $value) {
-            if ($value === self::SELECT_ALL) {
-                $selectAll = true;
-
-                continue;
-            }
-
-            if (is_int($value) || (is_string($value) && is_numeric($value))) {
-                $ids[] = (int) $value;
-            }
-        }
-
-        if ($selectAll) {
-            return self::allIds($dialogsOnly, $nonDialogsOnly);
-        }
-
-        return array_values(array_unique($ids));
-    }
-
-    private static function selectAllLabel(): string
-    {
-        return sprintf(
-            '<span style="display:inline-flex;align-items:center;gap:.5rem;font-weight:600;color:var(--primary-600)">%s</span>',
-            e(__('filament-max-broadcasts::broadcasts.chat_selection.select_all')),
-        );
     }
 
     public static function labelFor(Model $chat): string

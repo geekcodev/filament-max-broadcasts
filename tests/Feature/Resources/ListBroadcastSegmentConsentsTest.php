@@ -8,9 +8,7 @@ use GeekCo\FilamentMaxBroadcasts\Enums\BroadcastConsentAction;
 use GeekCo\FilamentMaxBroadcasts\Models\BroadcastConsent;
 use GeekCo\FilamentMaxBroadcasts\Models\BroadcastSegment;
 use GeekCo\FilamentMaxBroadcasts\Resources\BroadcastSegmentResource;
-use GeekCo\FilamentMaxBroadcasts\Resources\Pages\EditBroadcastSegment;
-use GeekCo\FilamentMaxBroadcasts\Resources\Pages\ViewBroadcastSegment;
-use GeekCo\FilamentMaxBroadcasts\Resources\RelationManagers\BroadcastConsentsRelationManager;
+use GeekCo\FilamentMaxBroadcasts\Resources\Pages\ListBroadcastSegmentConsents;
 use GeekCo\FilamentMaxBroadcasts\Tests\Fixtures\Chats;
 use GeekCo\FilamentMaxBroadcasts\Tests\Fixtures\TestUser;
 use GeekCo\FilamentMaxBroadcasts\Tests\TestCase;
@@ -18,7 +16,7 @@ use GeekCo\LaravelMaxClient\Models\MaxUser;
 use GeekCo\MaxPhpClient\Enum\ChatType;
 use Livewire\Livewire;
 
-class BroadcastSegmentConsentsRelationManagerTest extends TestCase
+class ListBroadcastSegmentConsentsTest extends TestCase
 {
     private function user(bool $manage): TestUser
     {
@@ -40,8 +38,11 @@ class BroadcastSegmentConsentsRelationManagerTest extends TestCase
         ]);
     }
 
-    private function consent(BroadcastSegment $segment, int $chatId, BroadcastConsentAction $action = BroadcastConsentAction::OptIn): BroadcastConsent
-    {
+    private function consent(
+        BroadcastSegment $segment,
+        int $chatId,
+        BroadcastConsentAction $action = BroadcastConsentAction::OptIn,
+    ): BroadcastConsent {
         return BroadcastConsent::query()->create([
             'segment_id' => $segment->getKey(),
             'chat_id' => $chatId,
@@ -52,24 +53,29 @@ class BroadcastSegmentConsentsRelationManagerTest extends TestCase
     /**
      * @return \Livewire\Features\SupportTesting\Testable<\Livewire\Component>
      */
-    private function relationManager(BroadcastSegment $segment)
+    private function page(BroadcastSegment $segment)
     {
-        return Livewire::test(BroadcastConsentsRelationManager::class, [
-            'ownerRecord' => $segment,
-            'pageClass' => ViewBroadcastSegment::class,
+        return Livewire::test(ListBroadcastSegmentConsents::class, [
+            'record' => $segment->getKey(),
         ]);
     }
 
-    public function testRelationManagerIsRegisteredOnSegmentResource(): void
+    public function testPageIsForbiddenWithoutViewPermission(): void
     {
-        self::assertContains(BroadcastConsentsRelationManager::class, BroadcastSegmentResource::getRelations());
+        $segment = $this->segment();
+
+        $this->get(BroadcastSegmentResource::getUrl('consents', ['record' => $segment]))
+            ->assertForbidden();
     }
 
-    public function testTitleIsLocalized(): void
+    public function testPageIsAccessibleWithViewPermission(): void
     {
-        $title = BroadcastConsentsRelationManager::getTitle($this->segment(), ViewBroadcastSegment::class);
+        $this->actingAs($this->user(manage: false));
 
-        self::assertSame(__('filament-max-broadcasts::broadcasts.consent.resource.plural_label'), $title);
+        $segment = $this->segment();
+
+        $this->get(BroadcastSegmentResource::getUrl('consents', ['record' => $segment]))
+            ->assertSuccessful();
     }
 
     public function testTableListsOnlyConsentsOfThisSegment(): void
@@ -81,7 +87,7 @@ class BroadcastSegmentConsentsRelationManagerTest extends TestCase
         $own = $this->consent($segment, 11);
         $foreign = $this->consent($other, 22, BroadcastConsentAction::OptOut);
 
-        $this->relationManager($segment)
+        $this->page($segment)
             ->assertSuccessful()
             // @phpstan-ignore method.notFound
             ->assertCanSeeTableRecords([$own])
@@ -101,7 +107,7 @@ class BroadcastSegmentConsentsRelationManagerTest extends TestCase
         $segment = $this->segment();
         $pending = $this->consent($segment, 11, BroadcastConsentAction::Pending);
 
-        $this->relationManager($segment)
+        $this->page($segment)
             ->assertSuccessful()
             // @phpstan-ignore method.notFound
             ->assertCanSeeTableRecords([$pending])
@@ -112,61 +118,10 @@ class BroadcastSegmentConsentsRelationManagerTest extends TestCase
     {
         $this->actingAs($this->user(manage: true));
 
-        $this->relationManager($this->segment())
+        $this->page($this->segment())
             ->assertSuccessful()
             ->assertSee(__('filament-max-broadcasts::broadcasts.consent_table.empty_heading'))
             ->assertDontSee('broadcast consents');
-    }
-
-    public function testSegmentColumnIsOmittedBecauseOwnerIsKnown(): void
-    {
-        $this->actingAs($this->user(manage: true));
-
-        $segment = $this->segment();
-        $this->consent($segment, 11);
-
-        $this->relationManager($segment)
-            ->assertSuccessful()
-            // @phpstan-ignore method.notFound
-            ->assertTableColumnDoesNotExist('segment.name');
-    }
-
-    public function testChatAndUserIdsRenderAsBadges(): void
-    {
-        $this->actingAs($this->user(manage: true));
-
-        Chats::create(11, 1, ['chat_type' => ChatType::Dialog]);
-        $segment = $this->segment();
-        $consent = BroadcastConsent::query()->create([
-            'segment_id' => $segment->getKey(),
-            'chat_id' => 11,
-            'user_id' => 5,
-            'action' => BroadcastConsentAction::OptIn,
-        ]);
-
-        $this->relationManager($segment)
-            // @phpstan-ignore method.notFound
-            ->assertCanSeeTableRecords([$consent])
-            ->assertSee('fi-badge', false)
-            ->assertSee('11')
-            ->assertSee('5')
-            ->assertDontSee('ID: 11')
-            ->assertDontSee('ID: 5');
-    }
-
-    public function testNameColumnFallsBackToAnonymousLabelWithoutChat(): void
-    {
-        $this->actingAs($this->user(manage: true));
-
-        $segment = $this->segment();
-        $consent = $this->consent($segment, 99);
-
-        $this->relationManager($segment)
-            ->assertTableColumnFormattedStateSet(
-                'name',
-                __('filament-max-broadcasts::broadcasts.consent_table.anonymous_chat', ['id' => 99]),
-                $consent,
-            );
     }
 
     public function testSearchByChatUserNameFindsConsent(): void
@@ -190,7 +145,7 @@ class BroadcastSegmentConsentsRelationManagerTest extends TestCase
         $found = $this->consent($segment, 11);
         $other = $this->consent($segment, 22);
 
-        $this->relationManager($segment)
+        $this->page($segment)
             ->searchTable('Петров')
             // @phpstan-ignore method.notFound
             ->assertCanSeeTableRecords([$found])
@@ -205,7 +160,7 @@ class BroadcastSegmentConsentsRelationManagerTest extends TestCase
         $segment = $this->segment();
         $consent = $this->consent($segment, 11);
 
-        $this->relationManager($segment)
+        $this->page($segment)
             // @phpstan-ignore method.notFound
             ->assertTableActionVisible('delete', $consent);
     }
@@ -217,30 +172,28 @@ class BroadcastSegmentConsentsRelationManagerTest extends TestCase
         $segment = $this->segment();
         $consent = $this->consent($segment, 11);
 
-        $this->relationManager($segment)
+        $this->page($segment)
             // @phpstan-ignore method.notFound
             ->assertTableActionHidden('delete', $consent);
     }
 
-    public function testViewPageShowsConsentsRelationManager(): void
-    {
-        $this->actingAs($this->user(manage: false));
-
-        $segment = $this->segment();
-
-        Livewire::test(ViewBroadcastSegment::class, ['record' => $segment->getKey()])
-            ->assertSuccessful()
-            ->assertSee(__('filament-max-broadcasts::broadcasts.consent.resource.plural_label'));
-    }
-
-    public function testEditPageShowsConsentsRelationManager(): void
+    public function testChatNameIsRenderedWithoutTypeBadges(): void
     {
         $this->actingAs($this->user(manage: true));
 
-        $segment = $this->segment();
+        Chats::create(11, 1, ['chat_type' => ChatType::Dialog]);
+        MaxUser::query()->create([
+            'user_id' => 1,
+            'first_name' => 'Иван',
+        ]);
 
-        Livewire::test(EditBroadcastSegment::class, ['record' => $segment->getKey()])
-            ->assertSuccessful()
-            ->assertSee(__('filament-max-broadcasts::broadcasts.consent.resource.plural_label'));
+        $segment = $this->segment();
+        $consent = $this->consent($segment, 11);
+
+        $this->page($segment)
+            // @phpstan-ignore method.notFound
+            ->assertCanSeeTableRecords([$consent])
+            ->assertSee('Иван')
+            ->assertDontSee('ID: 11');
     }
 }

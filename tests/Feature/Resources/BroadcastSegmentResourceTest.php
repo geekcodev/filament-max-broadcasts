@@ -12,7 +12,6 @@ use GeekCo\FilamentMaxBroadcasts\Models\BroadcastSegment;
 use GeekCo\FilamentMaxBroadcasts\Resources\BroadcastSegmentResource;
 use GeekCo\FilamentMaxBroadcasts\Resources\Pages\CreateBroadcast;
 use GeekCo\FilamentMaxBroadcasts\Resources\Pages\CreateBroadcastSegment;
-use GeekCo\FilamentMaxBroadcasts\Support\ChatSelectionField;
 use GeekCo\FilamentMaxBroadcasts\Resources\Pages\EditBroadcastSegment;
 use GeekCo\FilamentMaxBroadcasts\Resources\Pages\ListBroadcastSegments;
 use GeekCo\FilamentMaxBroadcasts\Resources\Pages\ViewBroadcastSegment;
@@ -76,12 +75,11 @@ class BroadcastSegmentResourceTest extends TestCase
     public function testCreateSegmentThroughForm(): void
     {
         $this->actingAs($this->adminUser());
-        $this->activeChats();
 
         Livewire::test(CreateBroadcastSegment::class)
             ->fillForm([
                 'name' => 'VIP clients',
-                'chat_ids' => [11, 22],
+                'description' => 'Постоянные клиенты',
             ])
             ->call('create')
             ->assertHasNoFormErrors()
@@ -91,8 +89,9 @@ class BroadcastSegmentResourceTest extends TestCase
         $segment = BroadcastSegment::query()->where('name', 'VIP clients')->firstOrFail();
 
         self::assertSame('VIP clients', $segment->name);
-        self::assertSame([11, 22], $segment->chat_ids);
-        self::assertSame(2, $segment->chat_count);
+        self::assertSame('Постоянные клиенты', $segment->description);
+        self::assertSame([], $segment->chat_ids);
+        self::assertSame(0, $segment->chat_count);
     }
 
     public function testCreateSegmentWithEmptyChatIds(): void
@@ -102,7 +101,6 @@ class BroadcastSegmentResourceTest extends TestCase
         Livewire::test(CreateBroadcastSegment::class)
             ->fillForm([
                 'name' => 'Newsletters',
-                'chat_ids' => [],
             ])
             ->call('create')
             ->assertHasNoFormErrors();
@@ -226,7 +224,6 @@ class BroadcastSegmentResourceTest extends TestCase
             ->fillForm([
                 'name' => 'VIP clients',
                 'description' => 'Постоянные клиенты',
-                'chat_ids' => ['11', '22'],
             ])
             ->call('save')
             ->assertHasNoFormErrors()
@@ -236,8 +233,8 @@ class BroadcastSegmentResourceTest extends TestCase
 
         self::assertSame('VIP clients', $segment->name);
         self::assertSame('Постоянные клиенты', $segment->description);
-        self::assertSame([11, 22], $segment->chat_ids);
-        self::assertSame(2, $segment->chat_count);
+        self::assertSame([11], $segment->chat_ids);
+        self::assertSame(1, $segment->chat_count);
     }
 
     public function testEditSegmentClearsDescriptionWhenOmitted(): void
@@ -254,7 +251,6 @@ class BroadcastSegmentResourceTest extends TestCase
             ->fillForm([
                 'name' => 'VIP',
                 'description' => null,
-                'chat_ids' => [],
             ])
             ->call('save')
             ->assertHasNoFormErrors();
@@ -262,8 +258,8 @@ class BroadcastSegmentResourceTest extends TestCase
         $segment->refresh();
 
         self::assertNull($segment->description);
-        self::assertSame([], $segment->chat_ids);
-        self::assertSame(0, $segment->chat_count);
+        self::assertSame([11], $segment->chat_ids);
+        self::assertSame(1, $segment->chat_count);
     }
 
     public function testDeleteSegmentThroughHeaderAction(): void
@@ -351,7 +347,7 @@ class BroadcastSegmentResourceTest extends TestCase
         $component->assertActionHidden('delete');
     }
 
-    public function testViewPageShowsSegmentDetailsAndRecipientNames(): void
+    public function testViewPageShowsSegmentDetailsAndRecipientsSummary(): void
     {
         $this->actingAs($this->adminUser());
 
@@ -379,40 +375,32 @@ class BroadcastSegmentResourceTest extends TestCase
             ->assertSuccessful()
             ->assertSee('VIP clients')
             ->assertSee('Постоянные клиенты')
-            ->assertSee('Иван Петров')
-            ->assertSee('Мария Сидорова');
+            ->assertSee(__('filament-max-broadcasts::broadcasts.segment.view.recipients_count', ['count' => 2]))
+            ->assertSee(__('filament-max-broadcasts::broadcasts.segment.view.manage_recipients'))
+            ->assertSee(__('filament-max-broadcasts::broadcasts.segment.tabs.recipients'))
+            ->assertSee(__('filament-max-broadcasts::broadcasts.segment.tabs.consents'));
     }
 
-    public function testViewPageRendersRecipientsAsBadgesLikeSelect(): void
+    public function testViewPageShowsRecipientsSummaryInsteadOfFullList(): void
     {
         $this->actingAs($this->adminUser());
 
         Chats::create(11, 1, ['chat_type' => ChatType::Dialog]);
+        MaxUser::query()->create([
+            'user_id' => 1,
+            'first_name' => 'Иван',
+            'last_name' => 'Петров',
+        ]);
 
         $segment = BroadcastSegment::query()->create([
-            'name' => 'Badges',
+            'name' => 'Summary',
             'chat_ids' => [11],
         ]);
 
         Livewire::test(ViewBroadcastSegment::class, ['record' => $segment->getKey()])
             ->assertSuccessful()
-            ->assertSee('fi-badge', false)
-            ->assertSee(__('filament-max-broadcasts::broadcasts.chat_types.dialog'))
-            ->assertSee('(ID: 11)');
-    }
-
-    public function testViewPageFallsBackToChatIdForUnknownRecipient(): void
-    {
-        $this->actingAs($this->adminUser());
-
-        $segment = BroadcastSegment::query()->create([
-            'name' => 'Unknown',
-            'chat_ids' => [99],
-        ]);
-
-        Livewire::test(ViewBroadcastSegment::class, ['record' => $segment->getKey()])
-            ->assertSuccessful()
-            ->assertSee(__('filament-max-broadcasts::broadcasts.segment.view.chat_fallback', ['id' => 99]));
+            ->assertSee(__('filament-max-broadcasts::broadcasts.segment.view.recipients_count', ['count' => 1]))
+            ->assertDontSee('Иван Петров');
     }
 
     public function testViewPageShowsEmptyRecipientsPlaceholder(): void
@@ -579,48 +567,6 @@ class BroadcastSegmentResourceTest extends TestCase
         }
 
         return $actions;
-    }
-
-    public function testCreateSegmentRejectsGroupChat(): void
-    {
-        $this->actingAs($this->adminUser());
-
-        Chats::create(11, 1, ['status' => MaxChatStatus::Active, 'chat_type' => ChatType::Dialog]);
-        Chats::create(33, 33, ['status' => MaxChatStatus::Active, 'chat_type' => ChatType::Chat]);
-
-        $before = BroadcastSegment::query()->count();
-
-        Livewire::test(CreateBroadcastSegment::class)
-            ->fillForm([
-                'name' => 'Mixed',
-                'chat_ids' => [11, 33],
-            ])
-            ->call('create')
-            // @phpstan-ignore method.notFound
-            ->assertHasFormErrors(['chat_ids']);
-
-        self::assertSame($before, BroadcastSegment::query()->count());
-    }
-
-    public function testSelectAllInSegmentFormSelectsOnlyDialogs(): void
-    {
-        $this->actingAs($this->adminUser());
-
-        Chats::create(11, 1, ['status' => MaxChatStatus::Active, 'chat_type' => ChatType::Dialog]);
-        Chats::create(22, 2, ['status' => MaxChatStatus::Active, 'chat_type' => ChatType::Dialog]);
-        Chats::create(33, 33, ['status' => MaxChatStatus::Active, 'chat_type' => ChatType::Chat]);
-
-        Livewire::test(CreateBroadcastSegment::class)
-            ->fillForm([
-                'name' => 'All dialogs',
-                'chat_ids' => [ChatSelectionField::SELECT_ALL],
-            ])
-            ->call('create')
-            ->assertHasNoFormErrors();
-
-        $segment = BroadcastSegment::query()->where('name', 'All dialogs')->firstOrFail();
-
-        self::assertEqualsCanonicalizing([11, 22], $segment->chat_ids);
     }
 
     public function testViewPageWarnsAboutNonDialogRecipients(): void

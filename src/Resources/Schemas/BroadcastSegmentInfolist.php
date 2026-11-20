@@ -8,11 +8,8 @@ use Filament\Infolists\Components\TextEntry;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
 use GeekCo\FilamentMaxBroadcasts\Models\BroadcastSegment;
+use GeekCo\FilamentMaxBroadcasts\Resources\BroadcastSegmentResource;
 use GeekCo\FilamentMaxBroadcasts\Services\BroadcastSegmentRecipients;
-use GeekCo\FilamentMaxBroadcasts\Support\ChatRegistry;
-use GeekCo\FilamentMaxBroadcasts\Support\ChatSelectionField;
-use GeekCo\LaravelMaxClient\Models\MaxChat;
-use Illuminate\Database\Eloquent\Builder;
 
 class BroadcastSegmentInfolist
 {
@@ -50,12 +47,11 @@ class BroadcastSegmentInfolist
             Section::make(__('filament-max-broadcasts::broadcasts.segment.view.recipients_section'))
                 ->description(__('filament-max-broadcasts::broadcasts.segment.view.recipients_section_description'))
                 ->schema([
-                    TextEntry::make('recipients')
+                    TextEntry::make('recipients_summary')
                         ->hiddenLabel()
                         ->html()
-                        ->placeholder(__('filament-max-broadcasts::broadcasts.segment.view.no_recipients'))
                         ->state(
-                            static fn (BroadcastSegment $record): string => self::recipientsHtml($record),
+                            static fn (BroadcastSegment $record): string => self::recipientsSummary($record),
                         ),
                 ]),
         ]);
@@ -66,40 +62,20 @@ class BroadcastSegmentInfolist
         return (new BroadcastSegmentRecipients())->nonDialogCount($segment);
     }
 
-    /**
-     * Получатели выводятся так же, как в селекте формы: бейдж типа, имя и ID.
-     */
-    private static function recipientsHtml(BroadcastSegment $segment): string
+    private static function recipientsSummary(BroadcastSegment $segment): string
     {
-        /** @var list<int> $chatIds */
-        $chatIds = array_values(array_unique(array_map('intval', $segment->chat_ids ?? [])));
+        $count = $segment->getChatCountAttribute();
 
-        if ($chatIds === []) {
-            return '';
+        if ($count === 0) {
+            return e(__('filament-max-broadcasts::broadcasts.segment.view.no_recipients'));
         }
 
-        $model = ChatRegistry::model();
+        $url = BroadcastSegmentResource::getUrl('recipients', ['record' => $segment]);
 
-        /** @var Builder<MaxChat> $query */
-        $query = ChatRegistry::withUsers($model::query()->whereIn('chat_id', $chatIds));
-
-        /** @var array<int, MaxChat> $chats */
-        $chats = [];
-
-        foreach ($query->get() as $chat) {
-            $chats[ChatRegistry::chatId($chat)] = $chat;
-        }
-
-        $lines = [];
-
-        foreach ($chatIds as $chatId) {
-            $chat = $chats[$chatId] ?? null;
-
-            $lines[] = $chat !== null
-                ? ChatSelectionField::labelFor($chat)
-                : e(__('filament-max-broadcasts::broadcasts.segment.view.chat_fallback', ['id' => $chatId]));
-        }
-
-        return implode('<br>', $lines);
+        return e(__('filament-max-broadcasts::broadcasts.segment.view.recipients_count', ['count' => $count]))
+            .' '
+            .'<a class="fi-link" href="'.e($url).'">'
+            .e(__('filament-max-broadcasts::broadcasts.segment.view.manage_recipients'))
+            .'</a>';
     }
 }

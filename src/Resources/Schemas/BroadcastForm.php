@@ -139,7 +139,6 @@ class BroadcastForm
                             __('filament-max-broadcasts::broadcasts.form.recipients'),
                             helperText: __('filament-max-broadcasts::broadcasts.form.recipients_helper'),
                             nonDialogsOnly: true,
-                            withSelectAll: false,
                         )->requiredWithout('segment_ids'),
                     ]),
                 Section::make(__('filament-max-broadcasts::broadcasts.form.attachments_section'))

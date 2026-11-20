@@ -31,14 +31,13 @@ class EditBroadcastSegment extends EditRecord
 
     /**
      * @param  BroadcastSegment  $record
-     * @param  array{name: string, description?: string|null, chat_ids: list<int>}  $data
+     * @param  array{name: string, description?: string|null}  $data
      */
     protected function handleRecordUpdate($record, array $data): BroadcastSegment
     {
         $record->forceFill([
             'name' => $data['name'],
             'description' => $data['description'] ?? null,
-            'chat_ids' => array_map('intval', $data['chat_ids']),
         ])->save();
 
         return $record;
