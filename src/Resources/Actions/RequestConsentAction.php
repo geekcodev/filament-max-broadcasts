@@ -16,7 +16,7 @@ class RequestConsentAction
 {
     public static function make(): Action
     {
-        $createPermission = config()->string('filament-max-broadcasts.permissions.create', 'broadcasts.create');
+        $createPermission = config()->string('filament-max-broadcasts.permissions.create', 'max_broadcasts.create');
 
         return Action::make('request_consent')
             ->label(__('filament-max-broadcasts::broadcasts.actions.request_consent'))

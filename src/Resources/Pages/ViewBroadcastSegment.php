@@ -16,7 +16,7 @@ class ViewBroadcastSegment extends ViewRecord
 
     protected function getHeaderActions(): array
     {
-        $managePermission = config()->string('filament-max-broadcasts.permissions.manage', 'broadcasts.manage');
+        $managePermission = config()->string('filament-max-broadcasts.permissions.manage', 'max_broadcasts.manage');
 
         return [
             RequestConsentAction::make()->record($this->getRecord()),

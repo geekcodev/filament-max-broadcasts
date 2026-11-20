@@ -17,7 +17,7 @@ class BroadcastSegmentsTable
 {
     public static function configure(Table $table): Table
     {
-        $managePermission = config()->string('filament-max-broadcasts.permissions.manage', 'broadcasts.manage');
+        $managePermission = config()->string('filament-max-broadcasts.permissions.manage', 'max_broadcasts.manage');
 
         return $table
             ->columns([

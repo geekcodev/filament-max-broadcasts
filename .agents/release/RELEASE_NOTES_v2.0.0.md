@@ -67,6 +67,16 @@
   `consentChatIds()` и работа со стартовым сегментом по умолчанию. Согласие всегда привязано к сегменту.
 - `BroadcastConsentAction` получил case `pending`: исчерпывающий `match` по этому enum в коде хоста нужно дополнить.
   Записи `pending` означают отправленный запрос, а не ответ, поэтому `answeredChatIds()` их не возвращает.
+- Переименованы env-переменные: `FILAMENT_MAX_BROADCASTS_PERMISSION_VIEW/CREATE/MANAGE` →
+  `MAX_PERMISSION_BROADCASTS_VIEW/CREATE/MANAGE` (схема как в `laravel-max-client`),
+  `FILAMENT_MAX_BROADCASTS_USER_MODEL`
+  → `MAX_BROADCASTS_USER_MODEL`, `FILAMENT_MAX_BROADCASTS_BOT_USERNAME` → `MAX_BOT_USERNAME`,
+  `FILAMENT_MAX_BROADCASTS_IMAGE_*` → `MAX_BROADCASTS_IMAGE_*`. У хостов с опубликованным конфигом `env()` вызывается в
+  их копии: чтобы новые имена заработали, обновите `config/filament-max-broadcasts.php`
+  или перепубликуйте конфиг и перенесите кастомные значения.
+- Строки прав переименованы: `broadcasts.view/create/manage` → `max_broadcasts.view/create/manage` (как `max_user.*` /
+  `max_chat.*` в бридже). Хостам нужно обновить роли, разрешения spatie/Gate и проверки в своём коде: старые строки
+  плагин больше не проверяет.
 - `queue.lock_ttl_seconds` стал нижней границей TTL лока: фактический TTL — `max(lock_ttl_seconds, timeout) + 60`.
   Долгая отправка больше не теряет лок на середине; при жёстком падении воркера лок держится до этого TTL.
 - `SendConsentRequestsJob::handle()` принимает дополнительный `ConsentService`; при ручном вызове джобы его нужно
@@ -94,5 +104,5 @@
 
 ## Качество
 
-Lint 0/113, PHPStan level max 0, PHPUnit 357/357 (1034 assertions), покрытие 96.81% строк (1941/2005),
+Lint 0/114, PHPStan level max 0, PHPUnit 359/359 (1038 assertions), покрытие 96.81% строк (1941/2005),
 `composer audit` — 0. Серверная проверка вебхуков в тестовом проекте — обязательное условие выпуска.

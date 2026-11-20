@@ -24,7 +24,7 @@ Filament-плагин: **массовые рассылки** пользоват�
 - статусы `scheduled → running → completed/cancelled/failed` со счётчиками `total/delivered/failed`;
 - очередь `SendBroadcastJob`: лок на рассылку, батчи, ретраи, отмена, событие `BroadcastCompleted`;
 - действия «Повторить» / «Отправить сейчас» / «Отменить» / «Удалить», фильтры по статусу и типу;
-- права настраиваются строками (`broadcasts.view` / `broadcasts.create` / `broadcasts.manage`
+- права настраиваются строками (`max_broadcasts.view` / `max_broadcasts.create` / `max_broadcasts.manage`
   по умолчанию) — совместимо со spatie/laravel-permission и Gate.
 
 ## Требования
@@ -97,7 +97,7 @@ public function panel(Panel $panel): Panel
 
 ```php
 Role::findByName('admin')->givePermissionTo([
-    'broadcasts.view', 'broadcasts.create', 'broadcasts.manage',
+    'max_broadcasts.view', 'max_broadcasts.create', 'max_broadcasts.manage',
 ]);
 ```
 
@@ -113,7 +113,7 @@ php artisan vendor:publish --tag=filament-max-broadcasts-migrations # мигра
 
 | Ключ                                                                      | По умолчанию                                       | Описание                                                                             |
 |---------------------------------------------------------------------------|----------------------------------------------------|--------------------------------------------------------------------------------------|
-| `permissions.*`                                                           | `broadcasts.view/create/manage`                    | Права на доступ/создание/управление рассылками                                       |
+| `permissions.*`                                                           | `max_broadcasts.view/create/manage`                | Права на доступ/создание/управление рассылками                                       |
 | `types`                                                                   | пакетные `News` / `Promo` enums                    | Реестр типов рассылок: `token` → класс, реализующий `BroadcastTypeContract`          |
 | `bot_username` / `buttons.per_type`                                       | пусто (`''`) / `[]`                                | Имя бота и кнопки-диплинки по типу по умолчанию (`https://max.ru/<bot>?startapp=…`)  |
 | `queue.batch_size` / `lock_ttl_seconds` / `tries` / `timeout` / `backoff` | 25 / 600 / 3 / 3600 / `[60,300]`                   | Параметры очередей рассылки и опроса согласия; TTL лока — не меньше `timeout` + 60 с |
@@ -124,6 +124,11 @@ php artisan vendor:publish --tag=filament-max-broadcasts-migrations # мигра
 | `consent.*`                                                               | сегмент «Новости и акции», текст запроса, кнопки   | Opt-in согласие: модель, имя сегмента, кнопки, тексты подтверждения opt-in/opt-out   |
 | `recipients.resolver`                                                     | пакетный `BroadcastRecipientsResolver`             | Класс выбора получателей для рассылки                                                |
 | `ui.*`                                                                    | см. конфиг                                         | Иконка/лейблы/sort/slug навигации ресурса                                            |
+
+Имена env-переменных — в `.env.example`: права используют схему бриджа
+`MAX_PERMISSION_BROADCASTS_VIEW/CREATE/MANAGE`, имя бота — общий ключ `MAX_BOT_USERNAME`, остальные настройки —
+`MAX_BROADCASTS_*`. Заданная переменная перекрывает значение из конфига, а пустая строка (`KEY=`) не равна «взять
+дефолт».
 
 Настройки кнопок-диплинков по умолчанию (по типу рассылки):
 
@@ -232,7 +237,7 @@ php artisan vendor:publish --tag=filament-max-broadcasts-migrations # мигра
 
 У сегмента есть страница просмотра: название, описание, количество получателей, дата создания и список чатов с именами
 из реестра (для неизвестного `chat_id` — подпись «Чат :id»). Правка и удаление на этой странице и в таблице доступны
-только по праву `broadcasts.manage`, а сама страница — по `broadcasts.view`.
+только по праву `max_broadcasts.manage`, а сама страница — по `max_broadcasts.view`.
 
 ## Согласие на рассылку (opt-in)
 
@@ -298,7 +303,9 @@ Xdebug: локально в dev-образе он включён, в CI — че
   ответа», источник «Запрос»), а не только ответы: видно, кому запрос ушёл и кто ещё не нажал кнопку. Кнопки страниц
   оформлены в стиле outlined и с иконками; на страницах создания рассылки и сегмента скрыта «Создать и создать ещё».
   После создания и сохранения сегмента панель возвращает на список. Лок рассылки и опроса согласия живёт не меньше
-  `queue.timeout` + 60 с, поэтому долгая отправка не теряет защиту от второго воркера.
+  `queue.timeout` + 60 с, поэтому долгая отправка не теряет защиту от второго воркера. Env-переменные и строки прав
+  приведены к схеме MAX: `max_broadcasts.view/create/manage`, `MAX_PERMISSION_BROADCASTS_*`, `MAX_BOT_USERNAME`,
+  `MAX_BROADCASTS_*`.
 - **v1.1.2** — согласие на рассылку привязано к сегменту: кнопка «Запросить согласие» на странице сегмента и в таблице
   сегментов, вопрос «Вы согласны получать рассылку «название»?» с кнопками «Да» / «Нет», ответы попадают в сегмент
   запроса, а сообщение с вопросом после нажатия удаляется из чата. Payload кнопки без сегмента больше не принимается. В

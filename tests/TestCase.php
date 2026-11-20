@@ -28,15 +28,15 @@ abstract class TestCase extends Orchestra
         Queue::fake();
 
         Gate::define(
-            'broadcasts.view',
+            'max_broadcasts.view',
             static fn (?TestUser $user): bool => $user->can_view_broadcasts ?? false,
         );
         Gate::define(
-            'broadcasts.create',
+            'max_broadcasts.create',
             static fn (?TestUser $user): bool => $user->can_create_broadcasts ?? false,
         );
         Gate::define(
-            'broadcasts.manage',
+            'max_broadcasts.manage',
             static fn (?TestUser $user): bool => $user->can_manage_broadcasts ?? false,
         );
     }

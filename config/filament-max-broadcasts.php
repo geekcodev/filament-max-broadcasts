@@ -6,9 +6,9 @@ return [
 
     // Права (проверяются через $user->can(...) — совместимо со spatie/laravel-permission и Gate).
     'permissions' => [
-        'view'   => env('FILAMENT_MAX_BROADCASTS_PERMISSION_VIEW', 'broadcasts.view'),
-        'create' => env('FILAMENT_MAX_BROADCASTS_PERMISSION_CREATE', 'broadcasts.create'),
-        'manage' => env('FILAMENT_MAX_BROADCASTS_PERMISSION_MANAGE', 'broadcasts.manage'),
+        'view'   => env('MAX_PERMISSION_BROADCASTS_VIEW', 'max_broadcasts.view'),
+        'create' => env('MAX_PERMISSION_BROADCASTS_CREATE', 'max_broadcasts.create'),
+        'manage' => env('MAX_PERMISSION_BROADCASTS_MANAGE', 'max_broadcasts.manage'),
     ],
 
     // Модели.
@@ -16,7 +16,7 @@ return [
     'recipient_model' => GeekCo\FilamentMaxBroadcasts\Models\BroadcastRecipient::class,
     'segment_model'   => GeekCo\FilamentMaxBroadcasts\Models\BroadcastSegment::class,
     'chats_model'     => GeekCo\LaravelMaxClient\Models\MaxChat::class,
-    'user_model'      => env('FILAMENT_MAX_BROADCASTS_USER_MODEL', \Illuminate\Foundation\Auth\User::class),
+    'user_model'      => env('MAX_BROADCASTS_USER_MODEL', \Illuminate\Foundation\Auth\User::class),
 
     // Типы рассылок: токен => класс, реализующий BroadcastTypeContract.
     // Каждый тип — свой backed-enum (case value === токен), поведение — в самом
@@ -39,7 +39,7 @@ return [
     //         ['text' => 'Консультация',     'startapp' => 'consult'],
     //     ],
     // ],
-    'bot_username' => env('FILAMENT_MAX_BROADCASTS_BOT_USERNAME', ''),
+    'bot_username' => env('MAX_BOT_USERNAME', ''),
     'buttons' => [
         'per_type' => [],
     ],
@@ -63,9 +63,9 @@ return [
     // показываются по временным подписанным ссылкам. Для предпросмотра на диске `local`
     // нужен 'serve' => true в config/filesystems.php (значение по умолчанию в Laravel 11+).
     'image' => [
-        'disk'      => env('FILAMENT_MAX_BROADCASTS_IMAGE_DISK', 'local'),
-        'directory' => env('FILAMENT_MAX_BROADCASTS_IMAGE_DIRECTORY', 'broadcasts'),
-        'max_kb'    => (int) env('FILAMENT_MAX_BROADCASTS_IMAGE_MAX_KB', 51200), // лимит MAX: 50 МБ = 51200 КБ
+        'disk'      => env('MAX_BROADCASTS_IMAGE_DISK', 'local'),
+        'directory' => env('MAX_BROADCASTS_IMAGE_DIRECTORY', 'broadcasts'),
+        'max_kb'    => (int) env('MAX_BROADCASTS_IMAGE_MAX_KB', 51200), // лимит MAX: 50 МБ = 51200 КБ
         'accepted_mime_types' => [
             'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/tiff', 'image/bmp', 'image/heic',
             'video/mp4', 'video/webm', 'video/quicktime', 'video/x-matroska',

@@ -79,7 +79,7 @@ MAX). Пока теги `v2.0.0` не выпущены, ветка `new` ста�
 - **Соответствие формулировки запроса и ответа** (не додумывай за пользователя):
 
   | Запрос пользователя | Что делаешь                                                                                |
-                  |--------------------|--------------------------------------------------------------------------------------------|
+                      |--------------------|--------------------------------------------------------------------------------------------|
   | «краткий текст коммита», «напиши коммит-сообщение», «subject» | Одна строка — head, без body, по Conventional Commits, по всем изменениям ветки. Коммит не создаёшь |
   | «текст коммита» без уточнений | То же самое: краткий head без body                                                               |
   | «полный текст коммита», «с body» | Head + body с переносами по 100 символов                                                        |
@@ -140,8 +140,10 @@ MAX). Пока теги `v2.0.0` не выпущены, ветка `new` ста�
 9. Текст в Markdown-файлах (AGENTS.md, README.md, release-notes, планы, журнал) пиши как человек: связный текст, абзацы,
    а не сплошные списки из буллетов. Списки — только когда действительно перечисляешь однородные пункты (Gate, gotchas,
    чек-лист).
-10. `.env.example` — единственный эталон имён переменных плагина; при добавлении новой `FILAMENT_MAX_BROADCASTS_*`
-    переменной синхронизируй его и `config/filament-max-broadcasts.php`.
+10. `.env.example` — единственный эталон имён переменных плагина; при добавлении новой переменной
+    (`MAX_PERMISSION_BROADCASTS_*`, `MAX_BOT_USERNAME`, `MAX_BROADCASTS_*`) синхронизируй его и
+    `config/filament-max-broadcasts.php`. Схема прав повторяет `laravel-max-client`
+    (`MAX_PERMISSION_<RESOURCE>_<ABILITY>`), `MAX_BOT_USERNAME` — общий ключ приложения для диплинков.
 11. Любой ключ перевода, который ты добавил в код, обязан существовать и в `lang/ru`, и в `lang/en` — иначе UI покажет
     сырые ключи, а тесты этого не поймают.
 12. По завершении каждой сессии заноси итог по формату из 4.1: строка в `.agents/journals/JOURNAL.md` + файл в
@@ -258,7 +260,7 @@ phpstan-baseline.neon                 только test-only записи для
                                       database, scripts)
 .gitattributes                        export-ignore для .agents/, tests/, .github/, dev-конфигов, Dockerfile,
                                       docker/ и docker-compose.yml: чистый dist для Packagist
-.env.example                          эталон имён переменных (FILAMENT_MAX_BROADCASTS_*)
+.env.example                          эталон имён переменных (MAX_PERMISSION_BROADCASTS_*, MAX_BOT_USERNAME, MAX_BROADCASTS_*)
 ```
 
 `resources/views/`, Livewire-компонентов и real-time (Echo/Reverb) на этом этапе **нет** — рассылки целиком на
@@ -320,8 +322,9 @@ Filament-компонентах. `composer.lock`, `.phpunit.cache/`, `.phpstan-c
 - **Подключение**: `->plugin(FilamentMaxBroadcastsPlugin::make())` в PanelProvider. Регистрирует ресурсы
   `BroadcastResource`, `BroadcastSegmentResource` и `BroadcastConsentResource` (переопределяются через `->resource()` /
   `->segmentResource()` / `->consentResource()`). Права (строки, `$user->can(...)`, совместимо с
-  spatie/laravel-permission и Gate): `permissions.view` (`broadcasts.view`), `permissions.create` (`broadcasts.create`),
-  `permissions.manage` (`broadcasts.manage`).
+  spatie/laravel-permission и Gate): `permissions.view` (`max_broadcasts.view`), `permissions.create`
+  (`max_broadcasts.create`),
+  `permissions.manage` (`max_broadcasts.manage`).
 - **Кнопки страниц**: действия уровня страницы (header/form actions) оформляются `->outlined()` и с иконкой. На
   страницах создания рассылки и сегмента `canCreateAnother()` возвращает `false`, поэтому кнопки «Создать и создать ещё»
   нет; создание идёт через «Создать».
@@ -600,7 +603,7 @@ Xdebug включён и отчёт покрытия строится без д�
     политику модели; политик в пакете нет, поэтому действие по умолчанию разрешено всем, кто вправе открыть страницу.
     Переопределённый `Resource::canCreate()` в этом пути не участвует: он остаётся серверной проверкой
     `CreateRecord::authorizeAccess()`. Поэтому каждому header-действию нужен явный `->authorize($permission)` — иначе
-    кнопку видит пользователь с одним `broadcasts.view`, а клик даёт 403. По той же причине кнопка «Создать» на
+    кнопку видит пользователь с одним `max_broadcasts.view`, а клик даёт 403. По той же причине кнопка «Создать» на
     `ListBroadcastSegments` объявлена в `getHeaderActions()` вручную: базовый `ListRecords` в v5 header-действий не
     добавляет.
 25. **Payload кнопок согласия несёт сегмент.** Опросы отправляются только с payload

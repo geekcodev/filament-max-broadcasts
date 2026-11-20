@@ -32,7 +32,7 @@ class BroadcastConsentsTable
 
     private static function apply(Table $table, bool $withSegment): Table
     {
-        $managePermission = config()->string('filament-max-broadcasts.permissions.manage', 'broadcasts.manage');
+        $managePermission = config()->string('filament-max-broadcasts.permissions.manage', 'max_broadcasts.manage');
 
         $columns = [
             TextColumn::make('id')

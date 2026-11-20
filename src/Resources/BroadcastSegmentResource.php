@@ -83,7 +83,7 @@ class BroadcastSegmentResource extends Resource
 
     public static function canAccess(): bool
     {
-        $permission = config()->string('filament-max-broadcasts.permissions.view', 'broadcasts.view');
+        $permission = config()->string('filament-max-broadcasts.permissions.view', 'max_broadcasts.view');
 
         $user = auth()->user();
 
@@ -92,7 +92,7 @@ class BroadcastSegmentResource extends Resource
 
     public static function canCreate(): bool
     {
-        $permission = config()->string('filament-max-broadcasts.permissions.create', 'broadcasts.create');
+        $permission = config()->string('filament-max-broadcasts.permissions.create', 'max_broadcasts.create');
 
         $user = auth()->user();
 
@@ -101,7 +101,7 @@ class BroadcastSegmentResource extends Resource
 
     public static function canView(Model $record): bool
     {
-        $permission = config()->string('filament-max-broadcasts.permissions.view', 'broadcasts.view');
+        $permission = config()->string('filament-max-broadcasts.permissions.view', 'max_broadcasts.view');
 
         $user = auth()->user();
 
@@ -110,7 +110,7 @@ class BroadcastSegmentResource extends Resource
 
     public static function canEdit(Model $record): bool
     {
-        $permission = config()->string('filament-max-broadcasts.permissions.manage', 'broadcasts.manage');
+        $permission = config()->string('filament-max-broadcasts.permissions.manage', 'max_broadcasts.manage');
 
         $user = auth()->user();
 
@@ -119,7 +119,7 @@ class BroadcastSegmentResource extends Resource
 
     public static function canDelete(Model $record): bool
     {
-        $permission = config()->string('filament-max-broadcasts.permissions.manage', 'broadcasts.manage');
+        $permission = config()->string('filament-max-broadcasts.permissions.manage', 'max_broadcasts.manage');
 
         $user = auth()->user();
 

@@ -22,7 +22,7 @@ class ViewBroadcast extends ViewRecord
         /** @var Broadcast $broadcast */
         $broadcast = $this->getRecord();
 
-        $managePermission = config()->string('filament-max-broadcasts.permissions.manage', 'broadcasts.manage');
+        $managePermission = config()->string('filament-max-broadcasts.permissions.manage', 'max_broadcasts.manage');
 
         return [
             Action::make('repeat')
