@@ -50,8 +50,7 @@
 
 ## Изменение (BC)
 
-- Constraints: `geekcodev/max-php-client` `^1.1.8` → `^2.0`, `geekcodev/laravel-max-client` `^1.2.0` → `^2.0`
-  (предрелизная ветка `new` — `dev-new`).
+- Constraints: `geekcodev/max-php-client` `^1.1.8` → `^2.0`, `geekcodev/laravel-max-client` `^1.2.0` → `^2.0`.
 - `BroadcastTypeContract::buttonRows()` возвращает `list<list<Button>>` вместо `list<InlineKeyboardButtonRow>`:
   кастомные типы рассылок требуют правки.
 - `ConsentPoll` удалён: запрос согласия больше не притворяется типом рассылки. Кнопки собирает

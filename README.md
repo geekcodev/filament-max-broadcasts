@@ -31,8 +31,7 @@ Filament-плагин: **массовые рассылки** пользоват�
 
 - PHP ^8.4, Laravel ^13.0
 - Filament ^5.0 (панель v5), Livewire ^4.1
-- `geekcodev/laravel-max-client` ^2.0 + `geekcodev/max-php-client` ^2.0 (предрелизная ветка `new` ставит обе зависимости
-  как `dev-new` из Packagist)
+- `geekcodev/laravel-max-client` ^2.0 + `geekcodev/max-php-client` ^2.0
 - Опубликованные миграции laravel-max-client (`max_users`, `max_chats`, `max_chat_users`)
 - Работающая очередь (для фактической отправки) и **общее для всех воркеров хранилище кэша**
   (redis/database/memcached): джобы берут `Cache::lock()`; на `file`/`array` рассылку отправят два процесса параллельно,
