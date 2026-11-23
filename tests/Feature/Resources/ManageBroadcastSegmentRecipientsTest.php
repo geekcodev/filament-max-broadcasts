@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace GeekCo\FilamentMaxBroadcasts\Tests\Feature\Resources;
 
 use Filament\Actions\Action;
+use Filament\Actions\ActionGroup;
 use GeekCo\FilamentMaxBroadcasts\Enums\BroadcastConsentAction;
 use GeekCo\FilamentMaxBroadcasts\Models\BroadcastConsent;
 use GeekCo\FilamentMaxBroadcasts\Models\BroadcastSegment;
@@ -68,6 +69,23 @@ class ManageBroadcastSegmentRecipientsTest extends TestCase
         ]);
     }
 
+    /**
+     * @param  array<Action|ActionGroup>  $actions
+     * @return array<string, Action>
+     */
+    private function actionsByName(array $actions): array
+    {
+        $named = [];
+
+        foreach ($actions as $action) {
+            if ($action instanceof Action && $action->getName() !== null) {
+                $named[$action->getName()] = $action;
+            }
+        }
+
+        return $named;
+    }
+
     public function testPageIsForbiddenWithoutViewPermission(): void
     {
         $segment = $this->segment();
@@ -117,7 +135,7 @@ class ManageBroadcastSegmentRecipientsTest extends TestCase
         self::assertEqualsCanonicalizing([11], $component->get('selectedTableRecords'));
     }
 
-    public function testSelectAllActionUsesTableClientHandler(): void
+    public function testSelectionActionsLiveInToolbarAndSaveInHeader(): void
     {
         $this->actingAs($this->user());
 
@@ -129,17 +147,18 @@ class ManageBroadcastSegmentRecipientsTest extends TestCase
         /** @var ManageBroadcastSegmentRecipients $page */
         $page = $component->instance();
 
-        $actions = [];
+        $headerActions = $this->actionsByName($page->getTable()->getHeaderActions());
+        $toolbarActions = $this->actionsByName($page->getTable()->getToolbarActions());
 
-        foreach ($page->getTable()->getHeaderActions() as $action) {
-            if ($action instanceof Action && $action->getName() !== null) {
-                $actions[$action->getName()] = $action;
-            }
+        self::assertSame(['saveSelection'], array_keys($headerActions));
+        self::assertSame(['selectAll', 'clearSelection'], array_keys($toolbarActions));
+
+        self::assertSame('selectAllRecords()', $toolbarActions['selectAll']->getAlpineClickHandler());
+        self::assertSame('deselectAllRecords()', $toolbarActions['clearSelection']->getAlpineClickHandler());
+
+        foreach ([...$headerActions, ...$toolbarActions] as $action) {
+            self::assertTrue($action->isOutlined());
         }
-
-        self::assertSame('selectAllRecords()', $actions['selectAll']->getAlpineClickHandler());
-        self::assertSame('deselectAllRecords()', $actions['clearSelection']->getAlpineClickHandler());
-        self::assertTrue($actions['saveSelection']->isVisible());
     }
 
     public function testSaveSelectionPersistsSelectedDialogs(): void
@@ -278,6 +297,26 @@ class ManageBroadcastSegmentRecipientsTest extends TestCase
             ->assertCanNotSeeTableRecords([$other]);
     }
 
+    public function testOnlySelectedFilterRespectsDeselectedRecordsInTrackingMode(): void
+    {
+        $this->actingAs($this->user());
+
+        $selected = $this->dialog(11, 1);
+        $other = $this->dialog(22, 2);
+
+        $segment = $this->segment();
+
+        /** @var \Livewire\Features\SupportTesting\Testable<\Livewire\Component> $component */
+        $component = Livewire::test(ManageBroadcastSegmentRecipients::class, ['record' => $segment->getKey()]);
+        $component->set('isTrackingDeselectedTableRecords', true);
+        $component->set('deselectedTableRecords', [22]);
+        $component->filterTable('selected')
+            // @phpstan-ignore method.notFound
+            ->assertCanSeeTableRecords([$selected])
+            // @phpstan-ignore method.notFound
+            ->assertCanNotSeeTableRecords([$other]);
+    }
+
     public function testSaveActionIsHiddenWithoutManagePermission(): void
     {
         $this->actingAs($this->user(manage: false));
@@ -291,13 +330,10 @@ class ManageBroadcastSegmentRecipientsTest extends TestCase
         /** @var ManageBroadcastSegmentRecipients $page */
         $page = $component->instance();
 
-        $actions = [];
-
-        foreach ($page->getTable()->getHeaderActions() as $action) {
-            if ($action instanceof Action && $action->getName() !== null) {
-                $actions[$action->getName()] = $action;
-            }
-        }
+        $actions = [
+            ...$this->actionsByName($page->getTable()->getHeaderActions()),
+            ...$this->actionsByName($page->getTable()->getToolbarActions()),
+        ];
 
         self::assertFalse($actions['selectAll']->isVisible());
         self::assertFalse($actions['clearSelection']->isVisible());

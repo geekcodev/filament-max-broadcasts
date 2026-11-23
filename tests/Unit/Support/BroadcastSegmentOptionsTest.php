@@ -108,4 +108,10 @@ class BroadcastSegmentOptionsTest extends TestCase
         self::assertSame([$empty->id => 'Пустой'], $labels);
         self::assertStringNotContainsString('fi-badge', $labels[$empty->id]);
     }
+
+    public function testLabelsForReturnsEmptyArrayForEmptySelection(): void
+    {
+        self::assertSame([], BroadcastSegmentOptions::labelsFor([]));
+        self::assertSame([], BroadcastSegmentOptions::labelsFor([0, -5, 'abc', null, []]));
+    }
 }

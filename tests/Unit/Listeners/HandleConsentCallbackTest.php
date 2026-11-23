@@ -367,6 +367,29 @@ class HandleConsentCallbackTest extends TestCase
         self::assertStringContainsString('/messages', (string) $http->requests[2]->getUri());
     }
 
+    public function testConsentIsRecordedEvenWhenDeleteAndEditFallbackBothFail(): void
+    {
+        $segment = BroadcastSegment::query()->create(['name' => 'Новости', 'chat_ids' => []]);
+
+        [$http, , $listener] = $this->makeListener([
+            $this->errorResponse(), // deleteMessage fails
+            $this->errorResponse(), // editMessage fallback fails too
+            $this->messageResponse(), // sendMessage
+            $this->successResponse(), // sendAnswer
+        ]);
+
+        $listener->handle(new MaxUpdateReceived($this->callbackUpdate('consent:'.$segment->id.':opt_in', 111, 222)));
+
+        self::assertSame(4, $http->callCount);
+        self::assertSame('PUT', $http->requests[1]->getMethod());
+        self::assertSame('POST', $http->requests[2]->getMethod());
+
+        $consent = BroadcastConsent::query()->where('chat_id', 111)->first();
+        self::assertNotNull($consent);
+        self::assertSame(BroadcastConsentAction::OptIn, $consent->action);
+        self::assertSame([111], $this->service->optedInChatIds($segment->id));
+    }
+
     public function testConsentIsRecordedEvenWhenConfirmationFails(): void
     {
         $segment = BroadcastSegment::query()->create(['name' => 'Новости', 'chat_ids' => []]);

@@ -639,4 +639,23 @@ class BroadcastServiceTest extends TestCase
         self::assertEqualsCanonicalizing([11, 22], $broadcast->recipients->pluck('chat_id')->all());
         self::assertEqualsCanonicalizing([11, 22], $broadcast->recipient_chat_ids);
     }
+
+    public function testResolveChatsReturnsEmptyCollectionForEmptyInput(): void
+    {
+        $service = app(BroadcastService::class);
+        $method = new \ReflectionMethod($service, 'resolveChats');
+
+        /** @var Collection<int, MaxChat> $chats */
+        $chats = $method->invoke($service, null, []);
+
+        self::assertTrue($chats->isEmpty());
+    }
+
+    public function testConsentedChatIdsReturnsEmptyArrayForNoSegments(): void
+    {
+        $service = app(BroadcastService::class);
+        $method = new \ReflectionMethod($service, 'consentedChatIds');
+
+        self::assertSame([], $method->invoke($service, []));
+    }
 }

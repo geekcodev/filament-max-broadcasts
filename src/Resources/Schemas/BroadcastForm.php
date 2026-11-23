@@ -46,6 +46,7 @@ class BroadcastForm
         ));
 
         return $schema
+            ->columns(1)
             ->components([
                 Section::make(__('filament-max-broadcasts::broadcasts.form.message_section'))
                     ->description(__('filament-max-broadcasts::broadcasts.form.message_section_description'))

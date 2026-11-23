@@ -234,4 +234,13 @@ class SendConsentRequestsJobTest extends TestCase
 
         self::assertSame(0, BroadcastConsent::query()->count());
     }
+
+    public function testFailedLogsErrorWithoutTouchingSegment(): void
+    {
+        $segment = $this->segment();
+
+        (new SendConsentRequestsJob($segment->id))->failed(new RuntimeException('boom'));
+
+        self::assertTrue(BroadcastSegment::query()->whereKey($segment->getKey())->exists());
+    }
 }

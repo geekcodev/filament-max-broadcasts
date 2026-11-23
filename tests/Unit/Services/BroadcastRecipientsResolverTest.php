@@ -116,4 +116,11 @@ class BroadcastRecipientsResolverTest extends TestCase
 
         self::assertCount(1, (new BroadcastRecipientsResolver())->resolve());
     }
+
+    public function testResolveForChatIdsReturnsEmptyCollectionForEmptyInput(): void
+    {
+        $chats = (new BroadcastRecipientsResolver())->resolveForChatIds([]);
+
+        self::assertTrue($chats->isEmpty());
+    }
 }

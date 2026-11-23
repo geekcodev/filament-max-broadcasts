@@ -13,19 +13,21 @@ class BroadcastSegmentForm
 {
     public static function configure(Schema $schema): Schema
     {
-        return $schema->components([
-            Section::make(__('filament-max-broadcasts::broadcasts.segment.form.main_section'))
-                ->schema([
-                    TextInput::make('name')
-                        ->label(__('filament-max-broadcasts::broadcasts.segment.form.name'))
-                        ->required()
-                        ->maxLength(255)
-                        ->columnSpanFull(),
-                    Textarea::make('description')
-                        ->label(__('filament-max-broadcasts::broadcasts.segment.form.description'))
-                        ->rows(3)
-                        ->columnSpanFull(),
-                ]),
-        ]);
+        return $schema
+            ->columns(1)
+            ->components([
+                Section::make(__('filament-max-broadcasts::broadcasts.segment.form.main_section'))
+                    ->schema([
+                        TextInput::make('name')
+                            ->label(__('filament-max-broadcasts::broadcasts.segment.form.name'))
+                            ->required()
+                            ->maxLength(255)
+                            ->columnSpanFull(),
+                        Textarea::make('description')
+                            ->label(__('filament-max-broadcasts::broadcasts.segment.form.description'))
+                            ->rows(3)
+                            ->columnSpanFull(),
+                    ]),
+            ]);
     }
 }

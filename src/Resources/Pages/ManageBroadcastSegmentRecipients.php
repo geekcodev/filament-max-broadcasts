@@ -68,6 +68,14 @@ class ManageBroadcastSegmentRecipients extends Page implements HasTable
         return $table
             ->query($this->recipientsQuery())
             ->headerActions([
+                Action::make('saveSelection')
+                    ->label(__('filament-max-broadcasts::broadcasts.segment.recipients_page.save'))
+                    ->icon('heroicon-o-check')
+                    ->outlined()
+                    ->authorize($managePermission)
+                    ->action(fn (): null => $this->saveSelection()),
+            ])
+            ->toolbarActions([
                 Action::make('selectAll')
                     ->label(__('filament-max-broadcasts::broadcasts.segment.recipients_page.select_all'))
                     ->icon('heroicon-o-check-circle')
@@ -82,11 +90,6 @@ class ManageBroadcastSegmentRecipients extends Page implements HasTable
                     ->outlined()
                     ->authorize($managePermission)
                     ->alpineClickHandler('deselectAllRecords()'),
-                Action::make('saveSelection')
-                    ->label(__('filament-max-broadcasts::broadcasts.segment.recipients_page.save'))
-                    ->icon('heroicon-o-check')
-                    ->authorize($managePermission)
-                    ->action(fn (): null => $this->saveSelection()),
             ])
             ->columns([
                 TextColumn::make('name')

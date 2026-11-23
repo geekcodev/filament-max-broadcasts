@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace GeekCo\FilamentMaxBroadcasts\Tests\Unit\Support;
 
 use GeekCo\FilamentMaxBroadcasts\Support\ChatSelectionField;
+use GeekCo\FilamentMaxBroadcasts\Support\DialogsOnlyRule;
 use GeekCo\FilamentMaxBroadcasts\Tests\TestCase;
 use GeekCo\FilamentMaxBroadcasts\Tests\Fixtures\Chats;
 use GeekCo\FilamentMaxBroadcasts\Tests\Fixtures\RawChat;
@@ -285,5 +286,30 @@ class ChatSelectionFieldTest extends TestCase
 
         self::assertCount(60, $labels);
         self::assertStringContainsString('(ID: 159)', $labels[159]);
+    }
+
+    public function testMakeAddsDialogsOnlyRuleForDialogScope(): void
+    {
+        $select = ChatSelectionField::make('chat_ids', 'Чат', dialogsOnly: true);
+
+        $hasRule = false;
+
+        foreach ($select->getValidationRules() as $rule) {
+            if ($rule instanceof DialogsOnlyRule) {
+                $hasRule = true;
+            }
+        }
+
+        self::assertTrue($hasRule);
+    }
+
+    public function testDialogIdsAmongReturnsOnlyRegisteredDialogs(): void
+    {
+        Chats::create(11, 1, ['status' => MaxChatStatus::Active, 'chat_type' => ChatType::Dialog]);
+        Chats::create(22, 22, ['status' => MaxChatStatus::Active, 'chat_type' => ChatType::Chat]);
+        Chats::create(33, 33, ['status' => MaxChatStatus::Active, 'chat_type' => ChatType::Channel]);
+
+        self::assertSame([11], ChatSelectionField::dialogIdsAmong([11, 22, 33, 99]));
+        self::assertSame([], ChatSelectionField::dialogIdsAmong([]));
     }
 }

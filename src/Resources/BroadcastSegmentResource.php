@@ -20,6 +20,7 @@ use GeekCo\FilamentMaxBroadcasts\Resources\Pages\ViewBroadcastSegment;
 use GeekCo\FilamentMaxBroadcasts\Resources\Schemas\BroadcastSegmentForm;
 use GeekCo\FilamentMaxBroadcasts\Resources\Schemas\BroadcastSegmentInfolist;
 use GeekCo\FilamentMaxBroadcasts\Resources\Tables\BroadcastSegmentsTable;
+use Illuminate\Auth\Access\Response;
 use Illuminate\Database\Eloquent\Model;
 
 class BroadcastSegmentResource extends Resource
@@ -127,6 +128,15 @@ class BroadcastSegmentResource extends Resource
         $user = auth()->user();
 
         return $user !== null && $user->can($permission);
+    }
+
+    /**
+     * Авторизация удаления на уровне ресурса: без явного переопределения Filament смотрит только политику
+     * модели (`get_authorization_response()`), политик в пакете нет, и `canDelete()` остаётся невостребованным.
+     */
+    public static function getDeleteAuthorizationResponse(Model $record): Response
+    {
+        return static::canDelete($record) ? Response::allow() : Response::deny();
     }
 
     public static function getPages(): array

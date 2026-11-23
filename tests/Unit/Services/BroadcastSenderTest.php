@@ -13,6 +13,7 @@ use GeekCo\FilamentMaxBroadcasts\Tests\TestCase;
 use GeekCo\FilamentMaxBroadcasts\Tests\Support\MockHttpClient;
 use GeekCo\MaxPhpClient\ApiClient;
 use GeekCo\MaxPhpClient\Dto\Recipient;
+use GeekCo\MaxPhpClient\Enum\UploadType;
 use GeekCo\MaxPhpClient\RateLimit\RateLimiter;
 use GeekCo\MaxPhpClient\Retry\RetryStrategy;
 use GuzzleHttp\Psr7\HttpFactory;
@@ -442,6 +443,42 @@ class BroadcastSenderTest extends TestCase
         $body = $this->decodeBody($http);
 
         self::assertArrayNotHasKey('attachments', $body);
+    }
+
+    public function testUploadRejectsMissingLocalFile(): void
+    {
+        [, $sender] = $this->makeSender();
+
+        $method = new \ReflectionMethod($sender, 'uploadToAttachment');
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('Media file not found or not readable');
+
+        $method->invoke($sender, UploadType::File, '/tmp/filament-max-broadcasts-missing-file.bin');
+    }
+
+    public function testSendFailsWhenUploadReturnsNoTokenForNonImage(): void
+    {
+        Storage::fake('public');
+        Storage::disk('public')->put('f/doc.pdf', 'fake-file');
+        config()->set('filament-max-broadcasts.image.disk', 'public');
+
+        [, $sender] = $this->makeSender([
+            new Response(200, [], json_encode(['url' => 'https://upload.example/doc'], JSON_THROW_ON_ERROR)),
+            new Response(200, [], json_encode(['url' => 'https://upload.example/no-token'], JSON_THROW_ON_ERROR)),
+        ]);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('MAX upload did not return an attachment token');
+
+        $sender->send(
+            new Recipient(chatId: 111, userId: 222),
+            'Document',
+            [
+                ['upload_type' => 'file', 'path' => 'f/doc.pdf'],
+            ],
+            News::News,
+        );
     }
 
     /**

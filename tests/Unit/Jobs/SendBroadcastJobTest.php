@@ -185,4 +185,81 @@ class SendBroadcastJobTest extends TestCase
 
         self::assertSame(BroadcastStatus::Failed, $broadcast->status);
     }
+
+    public function testHandleStopsBetweenBatchesWhenCancelled(): void
+    {
+        config()->set('filament-max-broadcasts.queue.batch_size', 1);
+
+        $broadcast = $this->createBroadcast(BroadcastStatus::Running);
+        $first = $this->createRecipient($broadcast, 1, 11);
+        $second = $this->createRecipient($broadcast, 2, 22);
+
+        $sender = $this->mock(BroadcastSender::class);
+        $sender->shouldReceive('send')->once()->andReturnUsing(
+            function () use ($broadcast): void {
+                $broadcast->forceFill(['status' => BroadcastStatus::Cancelled])->save();
+            },
+        );
+
+        (new SendBroadcastJob($broadcast))->handle($sender);
+
+        $broadcast->refresh();
+
+        self::assertSame(BroadcastStatus::Cancelled, $broadcast->status);
+        self::assertSame(BroadcastRecipientStatus::Sent, $first->refresh()->status);
+        self::assertSame(BroadcastRecipientStatus::Pending, $second->refresh()->status);
+    }
+
+    public function testHandleRefreshesCountersBetweenBatches(): void
+    {
+        Event::fake([BroadcastCompleted::class]);
+        config()->set('filament-max-broadcasts.queue.batch_size', 1);
+
+        $broadcast = $this->createBroadcast(BroadcastStatus::Running);
+        $this->createRecipient($broadcast, 1, 11);
+        $this->createRecipient($broadcast, 2, 22);
+
+        $sender = $this->mock(BroadcastSender::class);
+        $sender->shouldReceive('send')->twice();
+
+        (new SendBroadcastJob($broadcast))->handle($sender);
+
+        $broadcast->refresh();
+
+        self::assertSame(BroadcastStatus::Completed, $broadcast->status);
+        self::assertSame(2, $broadcast->delivered_count);
+        self::assertSame(0, $broadcast->failed_count);
+        Event::assertDispatched(BroadcastCompleted::class);
+    }
+
+    public function testHandleLeavesBroadcastRunningWhenPendingRecipientsRemain(): void
+    {
+        Event::fake([BroadcastCompleted::class]);
+
+        $broadcast = $this->createBroadcast(BroadcastStatus::Running);
+        $this->createRecipient($broadcast, 1, 11);
+
+        $sender = $this->mock(BroadcastSender::class);
+        $sender->shouldReceive('send')->once()->andReturnUsing(
+            static function () use ($broadcast): void {
+                BroadcastRecipient::query()->create([
+                    'broadcast_id' => $broadcast->id,
+                    'user_id' => 3,
+                    'chat_id' => 33,
+                    'status' => BroadcastRecipientStatus::Pending,
+                ]);
+            },
+        );
+
+        (new SendBroadcastJob($broadcast))->handle($sender);
+
+        $broadcast->refresh();
+
+        self::assertSame(BroadcastStatus::Running, $broadcast->status);
+        self::assertSame(
+            1,
+            $broadcast->recipients()->where('status', BroadcastRecipientStatus::Pending->value)->count(),
+        );
+        Event::assertNotDispatched(BroadcastCompleted::class);
+    }
 }

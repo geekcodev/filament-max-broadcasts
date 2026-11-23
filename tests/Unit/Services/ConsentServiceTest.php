@@ -219,4 +219,15 @@ class ConsentServiceTest extends TestCase
 
         self::assertSame(0, BroadcastConsent::query()->count());
     }
+
+    public function testConsentQueriesReturnEmptyForUnknownSegment(): void
+    {
+        self::assertSame([], $this->service->optedInChatIds(999));
+        self::assertSame([], $this->service->answeredChatIds(999));
+    }
+
+    public function testOptedInChatIdsBySegmentReturnsEmptyForNoSegments(): void
+    {
+        self::assertSame([], $this->service->optedInChatIdsBySegment([]));
+    }
 }

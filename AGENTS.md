@@ -79,7 +79,7 @@ MAX). Пока теги `v2.0.0` не выпущены, ветка `new` ста�
 - **Соответствие формулировки запроса и ответа** (не додумывай за пользователя):
 
   | Запрос пользователя | Что делаешь                                                                                |
-                        |--------------------|--------------------------------------------------------------------------------------------|
+                          |--------------------|--------------------------------------------------------------------------------------------|
   | «краткий текст коммита», «напиши коммит-сообщение», «subject» | Одна строка — head, без body, по Conventional Commits, по всем изменениям ветки. Коммит не создаёшь |
   | «текст коммита» без уточнений | То же самое: краткий head без body                                                               |
   | «полный текст коммита», «с body» | Head + body с переносами по 100 символов                                                        |
@@ -241,7 +241,8 @@ tests/                                PHPUnit + Orchestra Testbench
                                       Queue::fake() и порядок provider'ов — в TestCase
   Support/                             MockHttpClient — подмена транспорта PSR-18 для ApiClient
   Unit/                                enums, models, sanitizer, resolver, types, sender, service, job, consent, plugin,
-                                      адаптер реестра чатов, метаданные ресурса согласий
+                                      адаптер реестра чатов, правила валидации (диалоги/согласия), биндинги сервисов,
+                                      метаданные ресурса согласий
   Feature/                             BroadcastResource + BroadcastSegmentResource + BroadcastConsentResource +
                                       страницы получателей и согласий сегмента, relation manager получателей
 scripts/check-coverage.php            проверка порога покрытия по build/coverage.xml (дефолт 95% —
@@ -325,10 +326,15 @@ real-time (Echo/Reverb) по-прежнему нет — интерфейс це
   `->segmentResource()` / `->consentResource()`). Права (строки, `$user->can(...)`, совместимо с
   spatie/laravel-permission и Gate): `permissions.view` (`max_broadcasts.view`), `permissions.create`
   (`max_broadcasts.create`),
-  `permissions.manage` (`max_broadcasts.manage`).
+  `permissions.manage` (`max_broadcasts.manage`). У `BroadcastSegmentResource` переопределён
+  `getDeleteAuthorizationResponse()`: он делегирует `canDelete()`, потому что базовый `get_authorization_response()`
+  смотрит только политику модели, а политик в пакете нет (gotcha 24).
 - **Кнопки страниц**: действия уровня страницы (header/form actions) оформляются `->outlined()` и с иконкой. На
   страницах создания рассылки и сегмента `canCreateAnother()` возвращает `false`, поэтому кнопки «Создать и создать ещё»
-  нет; создание идёт через «Создать».
+  нет; создание идёт через «Создать». Действия таблиц следуют тому же стилю (outlined и иконка): действия выбора записей
+  («Выбрать всех», «Снять выделение») объявляются в `->toolbarActions()` и попадают в строку поиска слева, а сохранение
+  состава — остаётся в `->headerActions()`. Текстовая ссылка внутри infolist-записи — не кнопка: переход оформляется
+  `Action` в секции или `TextEntry` с `->url()`, иначе он визуально неотличим от текста.
 - **Редиректы**: после «Создать» на страницах создания рассылки и сегмента и после «Сохранить» при правке сегмента
   страница возвращает на список (`getRedirectUrl()` → `index`), а не на просмотр и не остаётся на форме.
 - **Источник чатов**: `BroadcastRecipientsResolver` — источник списка `MaxChat` для рассылки и опроса согласия (активные
@@ -357,7 +363,9 @@ real-time (Echo/Reverb) по-прежнему нет — интерфейс це
   `BroadcastRecipient`s, `segments()->sync()`, `dispatch()` через `SendBroadcastJob` (с `delay()` при будущем
   расписании). Текст санитизируется `BroadcastTextSanitizer->sanitize()` при создании; невалидное вложение
   (несуществующий
-  `UploadType`/пустой path) — `InvalidArgumentException 'Invalid broadcast attachment #%d.'`.
+  `UploadType`/пустой path) — `InvalidArgumentException 'Invalid broadcast attachment #%d.'`. Форма рассылки объявляет
+  `->columns(1)` на корневой схеме: секции идут на всю ширину, а плотность задаётся внутри секций (`stats` —
+  `->columns(4)`); иначе страница ресурса навязывает корневой схеме две колонки.
 - **Отправка**: `SendBroadcastJob` — `Cache::lock("broadcast:{id}", QueueLockTtl::seconds())`, статус `running`, батчи
   по
   `queue.batch_size` (25) с проверкой отмены и обновлением счётчиков, `sendTo()` через `BroadcastSender->send(new
@@ -412,7 +420,9 @@ real-time (Echo/Reverb) по-прежнему нет — интерфейс це
 - **Получатели сегмента**: форма сегмента содержит только блок «Основное» (название, описание). Получатели управляются
   на вкладке «Получатели» (`ManageBroadcastSegmentRecipients`): таблица активных диалогов с поиском, сортировкой и
   фильтром «Только выбранные», чекбоксы, «Выбрать всех» по всем активным диалогам и счётчик выбранных. Сохранение пишет
-  `chat_ids` и сохраняет старые не-диалоговые/неактивные ID, чтобы не терять данные сегмента.
+  `chat_ids` и сохраняет старые не-диалоговые/неактивные ID, чтобы не терять данные сегмента. Форма и infolist сегмента
+  объявляют `->columns(1)`, поэтому блоки на вкладках «Основное» и «Просмотр» занимают всю ширину: без этого страница
+  ресурса навязывает корневой схеме две колонки и секция сжимается до половины.
 - **Таблицы**: `max_broadcasts`, `max_broadcast_recipients`, `max_broadcast_attachments`, `max_broadcast_segments`,
   `max_broadcast_consents` и pivot `max_broadcast_segment` (структура — наследие `broadcasts`/`broadcast_recipients` из
   хоста, но с префиксом `max_` во избежание конфликтов; вложения — отдельная таблица по несколько на рассылку). FK
@@ -463,7 +473,7 @@ Xdebug включён и отчёт покрытия строится без д�
 3. **Статика**: `composer analyse` (PHPStan level max) → 0 ошибок.
 4. **Тесты**: `composer test` (PHPUnit) → зелёные (failOnRisky/failOnWarning).
 5. **Покрытие**: `composer coverage` → ≥порога строк (`scripts/check-coverage.php`). **Порог 95%** — измеренный факт на
-   текущем состоянии кода 96.03% строк (86.84% методов), то есть запас ~1.0 процентного пункта. Это храповик: при
+   текущем состоянии кода 99.20% строк (97.75% методов), то есть запас ~4.2 процентного пункта. Это храповик: при
    добавлении тестов порог можно поднимать, понижать его вниз, чтобы «покрасить» Gate, нельзя (gotcha 18).
 6. **Audit**: `composer security-audit` → 0 уязвимостей.
 7. **Проверка в условиях CI**: тот же Gate целиком в чистой копии дерева без `vendor/` и `composer.lock`, со свежей
@@ -578,11 +588,13 @@ Xdebug включён и отчёт покрытия строится без д�
     (`assertCanSeeTableRecords`, `assertActionVisible` и подобные); production-ошибки в baseline не добавлять. В
     `phpstan.neon` стоит `reportUnmatchedIgnoredErrors: false`: в CI Filament/Livewire/Larastan новее, часть хелперных
     ошибок там просто не возникает, и незакрытая запись иначе роняет анализ при зелёном коде.
-18. **Порог покрытия 95% — храповик, а не цель**: сейчас 96.03% строк (86.84% методов), запас ~1.0 процентного пункта.
-    Понижать порог вниз, чтобы «покрасить» Gate, нельзя. Непокрытыми остаются защитные ветки, которые без моков
-    финальных классов недостижимы: `BroadcastTextSanitizer` (HTMLDocument бросает исключение, пустой body, `unwrap` без
-    родителя), а также редкие ветки `BroadcastForm`, `SendConsentRequestsJob`, `BroadcastSegmentResource`,
-    `SendBroadcastJob`, `ViewBroadcast`, `BroadcastsTable`, `CreateBroadcast` и резолвера в service provider.
+18. **Порог покрытия 95% — храповик, а не цель**: сейчас 99.20% строк (97.75% методов), запас ~4.2 процентного пункта.
+    Понижать порог вниз, чтобы «покрасить» Gate, нельзя. Непокрытыми остаются только аварийные ветки файловых операций
+    `AttachmentFile` (сбой `fopen`/копирования, `chmod`, `unlink`), не-скалярная защита в
+    `ConsentService::optedInChatIdsBySegment` (в БД целочисленные колонки) и ветки `BroadcastTextSanitizer`
+    (HTMLDocument бросает исключение, пустой body; `Comment`-узлы парсер HTML5 отбрасывает до обработки). Guards
+    действий, пустые входы сервисов и служебные ветки job'ов покрыты, включая reflection-вызовы приватных методов,
+    недостижимых через UI.
 19. **Ловушка репозитория**: release-notes и планы больше не создаются в корне (`RELEASE-vX.Y.Z.md`, `PLAN-*.md`) и
     рабочая память больше не в `.ai/` — только в `.agents/` (gotcha по путям из §2 и 4.1).
 20. **PyYAML молча перезатирает дубликаты ключей**: `yaml.safe_load` на workflow с двумя `name:` в одном job вернёт
@@ -611,7 +623,10 @@ Xdebug включён и отчёт покрытия строится без д�
     `CreateRecord::authorizeAccess()`. Поэтому каждому header-действию нужен явный `->authorize($permission)` — иначе
     кнопку видит пользователь с одним `max_broadcasts.view`, а клик даёт 403. По той же причине кнопка «Создать» на
     `ListBroadcastSegments` объявлена в `getHeaderActions()` вручную: базовый `ListRecords` в v5 header-действий не
-    добавляет.
+    добавляет. Аналогично `Resource::canView()/canEdit()/canDelete()` — удобные методы, но `getView/Edit/Delete
+    AuthorizationResponse()` их не вызывают. Доступ к страницам идёт через `canAccess()` → эти методы, а авторизация
+    `DeleteAction` — через `getDeleteAuthorizationResponse()`; поэтому `BroadcastSegmentResource` переопределяет его и
+    делегирует `canDelete()`, иначе проверка прав удаления жила бы только в явных `->authorize()` на действиях.
 25. **Payload кнопок согласия несёт сегмент.** Опросы отправляются только с payload
     `consent:<segmentId>:<action>`. `HandleConsentCallback` принимает только такой формат, payload без сегмента
     игнорируется. После ответа бот удаляет сообщение с опросом (`deleteMessage`); при ошибке удаления кнопки убираются

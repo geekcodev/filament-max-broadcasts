@@ -6,6 +6,7 @@ namespace GeekCo\FilamentMaxBroadcasts\Tests\Feature\Resources;
 
 use Filament\Actions\Action;
 use Filament\Forms\Components\FileUpload;
+use Filament\Schemas\Components\Section;
 use GeekCo\FilamentMaxBroadcasts\Enums\BroadcastRecipientStatus;
 use GeekCo\FilamentMaxBroadcasts\Enums\BroadcastStatus;
 use GeekCo\FilamentMaxBroadcasts\Jobs\SendBroadcastJob;
@@ -257,6 +258,34 @@ class BroadcastResourceTest extends TestCase
         $this->get(BroadcastResource::getUrl('view', ['record' => $broadcast]))->assertForbidden();
     }
 
+    public function testBroadcastFormUsesSingleFullWidthColumn(): void
+    {
+        $broadcast = $this->broadcast(BroadcastStatus::Completed);
+        $this->actingAs($this->adminUser());
+
+        /** @var CreateBroadcast $createPage */
+        $createPage = Livewire::test(CreateBroadcast::class)->instance();
+        /** @var ViewBroadcast $viewPage */
+        $viewPage = Livewire::test(ViewBroadcast::class, ['record' => $broadcast->getKey()])->instance();
+
+        self::assertSame(1, $createPage->getSchema('form')?->getColumns('lg'));
+        self::assertSame(1, $viewPage->getSchema('form')?->getColumns('lg'));
+
+        $statsSection = null;
+
+        foreach ($viewPage->getSchema('form')->getComponents() as $component) {
+            if (
+                $component instanceof Section
+                && $component->getHeading() === __('filament-max-broadcasts::broadcasts.form.stats_section')
+            ) {
+                $statsSection = $component;
+            }
+        }
+
+        self::assertInstanceOf(Section::class, $statsSection);
+        self::assertSame(4, $statsSection->getColumns('lg'));
+    }
+
     public function testViewPageShowsImagePreviewAndLinksForOtherFiles(): void
     {
         Storage::fake('public');
@@ -372,6 +401,74 @@ class BroadcastResourceTest extends TestCase
         $broadcast->refresh();
 
         self::assertSame(BroadcastStatus::Cancelled, $broadcast->status);
+    }
+
+    public function testSendNowDoesNothingForNonScheduledBroadcast(): void
+    {
+        $broadcast = $this->broadcast(BroadcastStatus::Completed);
+        $this->actingAs($this->adminUser());
+
+        $page = Livewire::test(ViewBroadcast::class, ['record' => $broadcast->getKey()])->instance();
+
+        $method = new \ReflectionMethod($page, 'sendNow');
+        $method->invoke($page);
+
+        self::assertSame(BroadcastStatus::Completed, $broadcast->refresh()->status);
+        Queue::assertNotPushed(SendBroadcastJob::class);
+    }
+
+    public function testCancelDoesNothingForFinishedBroadcast(): void
+    {
+        $broadcast = $this->broadcast(BroadcastStatus::Completed);
+        $this->actingAs($this->adminUser());
+
+        $page = Livewire::test(ViewBroadcast::class, ['record' => $broadcast->getKey()])->instance();
+
+        $method = new \ReflectionMethod($page, 'cancel');
+        $method->invoke($page);
+
+        self::assertSame(BroadcastStatus::Completed, $broadcast->refresh()->status);
+    }
+
+    public function testCreateDefaultsTypeWhenPayloadOmitsIt(): void
+    {
+        $this->actingAs($this->adminUser());
+        $this->activeChat();
+
+        $page = Livewire::test(CreateBroadcast::class)->instance();
+
+        $method = new \ReflectionMethod($page, 'handleRecordCreation');
+
+        /** @var Broadcast $broadcast */
+        $broadcast = $method->invoke($page, [
+            'text' => 'Hello',
+            'recipient_chat_ids' => [11],
+        ]);
+
+        self::assertSame('news', $broadcast->type);
+        Queue::assertPushed(SendBroadcastJob::class);
+    }
+
+    public function testCreateAcceptsScheduledAtFromPayload(): void
+    {
+        $this->actingAs($this->adminUser());
+        $this->activeChat();
+
+        $scheduledAt = now()->addHour()->startOfSecond();
+        $page = Livewire::test(CreateBroadcast::class)->instance();
+
+        $method = new \ReflectionMethod($page, 'handleRecordCreation');
+
+        /** @var Broadcast $broadcast */
+        $broadcast = $method->invoke($page, [
+            'text' => 'Scheduled',
+            'type' => 'news',
+            'scheduled_at' => $scheduledAt->toDateTimeString(),
+            'recipient_chat_ids' => [11],
+        ]);
+
+        self::assertSame($scheduledAt->toDateTimeString(), $broadcast->scheduled_at?->toDateTimeString());
+        Queue::assertPushed(SendBroadcastJob::class);
     }
 
     public function testRepeatActionCreatesNewBroadcast(): void
@@ -528,5 +625,57 @@ class BroadcastResourceTest extends TestCase
             ->assertHasNoFormErrors();
 
         Queue::assertPushed(SendBroadcastJob::class);
+    }
+
+    public function testViewPageShowsStartedSegmentsOrPlaceholder(): void
+    {
+        $segment = BroadcastSegment::query()->create([
+            'name' => 'VIP',
+            'chat_ids' => [11],
+        ]);
+        $started = $this->broadcast(BroadcastStatus::Completed);
+        $started->segments()->attach($segment->id);
+        $this->actingAs($this->adminUser());
+
+        $this->get(BroadcastResource::getUrl('view', ['record' => $started]))
+            ->assertSuccessful()
+            ->assertSee('VIP')
+            ->assertDontSee(__('filament-max-broadcasts::broadcasts.form.no_segment'));
+
+        $withoutSegments = $this->broadcast(BroadcastStatus::Completed);
+
+        $this->get(BroadcastResource::getUrl('view', ['record' => $withoutSegments]))
+            ->assertSuccessful()
+            ->assertSee(__('filament-max-broadcasts::broadcasts.form.no_segment'));
+    }
+
+    public function testListTableShowsCancelledBroadcastWithAttachment(): void
+    {
+        Storage::fake('public');
+        config()->set('filament-max-broadcasts.image.disk', 'public');
+        Storage::disk('public')->put('images/photo.png', 'fake');
+
+        $broadcast = $this->broadcast(BroadcastStatus::Cancelled);
+        $broadcast->attachments()->createMany([
+            ['upload_type' => UploadType::Image->value, 'path' => 'images/photo.png', 'sort_order' => 0],
+        ]);
+        $this->actingAs($this->adminUser());
+
+        Livewire::test(ListBroadcasts::class)
+            ->assertSuccessful()
+            ->assertSee(__('filament-max-broadcasts::broadcasts.table.has_image'))
+            ->assertSee(BroadcastStatus::Cancelled->label());
+    }
+
+    public function testRepeatActionFromTableRejectsBroadcastWithoutRecipients(): void
+    {
+        $original = $this->broadcast(BroadcastStatus::Completed);
+        $this->actingAs($this->adminUser());
+
+        Livewire::test(ListBroadcasts::class)
+            ->callTableAction('repeat', $original);
+
+        self::assertSame(1, Broadcast::query()->count());
+        Queue::assertNotPushed(SendBroadcastJob::class);
     }
 }

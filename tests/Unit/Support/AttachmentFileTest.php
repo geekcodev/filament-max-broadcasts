@@ -89,6 +89,25 @@ class AttachmentFileTest extends TestCase
         AttachmentFile::fromDisk($disk, 'broadcasts/big.mp4');
     }
 
+    public function testRemoteDiskSkipsSizeLimitWhenDisabled(): void
+    {
+        config()->set('filament-max-broadcasts.image.max_kb', 0);
+
+        $disk = new RemoteDisk(['broadcasts/big.mp4' => str_repeat('a', 2048)]);
+
+        $file = AttachmentFile::fromDisk($disk, 'broadcasts/big.mp4');
+        $path = $file->path();
+
+        try {
+            self::assertFileExists($path);
+            self::assertSame(2048, filesize($path));
+        } finally {
+            $file->cleanup();
+        }
+
+        self::assertFileDoesNotExist($path);
+    }
+
     public function testBlankStoragePathThrows(): void
     {
         $disk = new RemoteDisk();

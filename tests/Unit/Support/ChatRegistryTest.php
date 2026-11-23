@@ -290,6 +290,15 @@ class ChatRegistryTest extends TestCase
         self::assertSame('', ChatRegistry::userName(new RawUser()));
         self::assertSame('', ChatRegistry::userName(null));
     }
+
+    public function testUserResolversTolerateModelsWithoutRegistryRelations(): void
+    {
+        $chat = new class () extends \Illuminate\Database\Eloquent\Model {
+        };
+
+        self::assertNull(ChatRegistry::userId($chat));
+        self::assertNull(ChatRegistry::user($chat));
+    }
 }
 
 /**

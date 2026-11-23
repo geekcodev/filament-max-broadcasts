@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace GeekCo\FilamentMaxBroadcasts\Tests\Feature\Resources;
 
 use Filament\Actions\Action;
-use GeekCo\FilamentMaxBroadcasts\Models\Broadcast;
+use Filament\Resources\Pages\Page;
+use Filament\Schemas\Components\Section;
 use GeekCo\FilamentMaxBroadcasts\Enums\BroadcastConsentAction;
+use GeekCo\FilamentMaxBroadcasts\Models\Broadcast;
 use GeekCo\FilamentMaxBroadcasts\Models\BroadcastConsent;
 use GeekCo\FilamentMaxBroadcasts\Models\BroadcastSegment;
 use GeekCo\FilamentMaxBroadcasts\Resources\BroadcastSegmentResource;
@@ -16,13 +18,14 @@ use GeekCo\FilamentMaxBroadcasts\Resources\Pages\EditBroadcastSegment;
 use GeekCo\FilamentMaxBroadcasts\Resources\Pages\ListBroadcastSegments;
 use GeekCo\FilamentMaxBroadcasts\Resources\Pages\ViewBroadcastSegment;
 use GeekCo\FilamentMaxBroadcasts\Services\ConsentService;
-use GeekCo\FilamentMaxBroadcasts\Tests\Fixtures\TestUser;
 use GeekCo\FilamentMaxBroadcasts\Tests\Fixtures\Chats;
+use GeekCo\FilamentMaxBroadcasts\Tests\Fixtures\TestUser;
 use GeekCo\FilamentMaxBroadcasts\Tests\TestCase;
 use GeekCo\LaravelMaxClient\Enums\MaxChatStatus;
 use GeekCo\LaravelMaxClient\Models\MaxUser;
 use GeekCo\MaxPhpClient\Enum\ChatType;
 use Livewire\Livewire;
+use Mockery;
 
 class BroadcastSegmentResourceTest extends TestCase
 {
@@ -347,6 +350,96 @@ class BroadcastSegmentResourceTest extends TestCase
         $component->assertActionHidden('delete');
     }
 
+    public function testCanDeleteFollowsManagePermission(): void
+    {
+        $segment = BroadcastSegment::query()->create([
+            'name' => 'Deletable',
+            'chat_ids' => [],
+        ]);
+
+        $this->actingAs($this->adminUser());
+        self::assertTrue(BroadcastSegmentResource::canDelete($segment));
+        self::assertTrue(BroadcastSegmentResource::getDeleteAuthorizationResponse($segment)->allowed());
+
+        $this->actingAs(TestUser::query()->create([
+            'name' => 'Viewer',
+            'email' => 'viewer@example.com',
+            'password' => 'secret',
+            'can_view_broadcasts' => true,
+        ]));
+        self::assertFalse(BroadcastSegmentResource::canDelete($segment));
+        self::assertFalse(BroadcastSegmentResource::getDeleteAuthorizationResponse($segment)->allowed());
+    }
+
+    public function testSubNavigationIsEmptyForPageWithoutRecord(): void
+    {
+        /** @var Page $page */
+        $page = Mockery::mock(Page::class);
+
+        self::assertSame([], BroadcastSegmentResource::getRecordSubNavigation($page));
+    }
+
+    public function testViewPageShowsManageRecipientsButton(): void
+    {
+        $this->actingAs($this->adminUser());
+
+        $segment = BroadcastSegment::query()->create([
+            'name' => 'Manage',
+            'chat_ids' => [],
+        ]);
+
+        /** @var ViewBroadcastSegment $page */
+        $page = Livewire::test(ViewBroadcastSegment::class, ['record' => $segment->getKey()])->instance();
+
+        $recipientsSection = null;
+
+        foreach ($page->getSchema('infolist')?->getComponents() ?? [] as $section) {
+            if (
+                $section instanceof Section
+                && $section->getHeading() === __('filament-max-broadcasts::broadcasts.segment.view.recipients_section')
+            ) {
+                $recipientsSection = $section;
+            }
+        }
+
+        self::assertInstanceOf(Section::class, $recipientsSection);
+
+        $action = null;
+
+        foreach ($recipientsSection->getChildSchema()?->getComponents() ?? [] as $component) {
+            if ($component instanceof Action) {
+                $action = $component;
+            }
+        }
+
+        self::assertInstanceOf(Action::class, $action);
+        self::assertSame('heroicon-o-users', $action->getIcon());
+        self::assertTrue($action->isOutlined());
+        self::assertSame(
+            BroadcastSegmentResource::getUrl('recipients', ['record' => $segment]),
+            $action->getUrl(),
+        );
+    }
+
+    public function testSegmentFormAndInfolistUseSingleFullWidthColumn(): void
+    {
+        $this->actingAs($this->adminUser());
+
+        $segment = BroadcastSegment::query()->create([
+            'name' => 'Full width',
+            'chat_ids' => [],
+        ]);
+
+        /** @var EditBroadcastSegment $editPage */
+        $editPage = Livewire::test(EditBroadcastSegment::class, ['record' => $segment->getKey()])->instance();
+
+        /** @var ViewBroadcastSegment $viewPage */
+        $viewPage = Livewire::test(ViewBroadcastSegment::class, ['record' => $segment->getKey()])->instance();
+
+        self::assertSame(1, $editPage->getSchema('form')?->getColumns('lg'));
+        self::assertSame(1, $viewPage->getSchema('infolist')?->getColumns('lg'));
+    }
+
     public function testViewPageShowsSegmentDetailsAndRecipientsSummary(): void
     {
         $this->actingAs($this->adminUser());
@@ -582,6 +675,23 @@ class BroadcastSegmentResourceTest extends TestCase
         ]);
 
         Livewire::test(ViewBroadcastSegment::class, ['record' => $segment->getKey()])
+            ->assertSuccessful()
+            ->assertSee(__('filament-max-broadcasts::broadcasts.segment.view.non_dialog_warning', ['count' => 1]));
+    }
+
+    public function testListPageWarnsAboutNonDialogRecipients(): void
+    {
+        $this->actingAs($this->adminUser());
+
+        Chats::create(11, 1, ['status' => MaxChatStatus::Active, 'chat_type' => ChatType::Dialog]);
+        Chats::create(33, 33, ['status' => MaxChatStatus::Active, 'chat_type' => ChatType::Chat]);
+
+        BroadcastSegment::query()->create([
+            'name' => 'Legacy',
+            'chat_ids' => [11, 33],
+        ]);
+
+        $this->get(BroadcastSegmentResource::getUrl('index'))
             ->assertSuccessful()
             ->assertSee(__('filament-max-broadcasts::broadcasts.segment.view.non_dialog_warning', ['count' => 1]));
     }
