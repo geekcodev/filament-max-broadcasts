@@ -6,6 +6,7 @@ namespace GeekCo\FilamentMaxBroadcasts\Tests\Feature\Resources;
 
 use Filament\Actions\Action;
 use Filament\Forms\Components\FileUpload;
+use Filament\Forms\Components\RichEditor;
 use Filament\Schemas\Components\Section;
 use GeekCo\FilamentMaxBroadcasts\Enums\BroadcastRecipientStatus;
 use GeekCo\FilamentMaxBroadcasts\Enums\BroadcastStatus;
@@ -284,6 +285,25 @@ class BroadcastResourceTest extends TestCase
 
         self::assertInstanceOf(Section::class, $statsSection);
         self::assertSame(4, $statsSection->getColumns('lg'));
+    }
+
+    public function testMessageEditorUsesCustomMinHeight(): void
+    {
+        $this->actingAs($this->adminUser());
+
+        /** @var CreateBroadcast $createPage */
+        $createPage = Livewire::test(CreateBroadcast::class)->instance();
+
+        $editor = null;
+
+        foreach ($createPage->getSchema('form')?->getFlatComponents(withActions: false) ?? [] as $component) {
+            if ($component instanceof RichEditor && $component->getName() === 'text') {
+                $editor = $component;
+            }
+        }
+
+        self::assertInstanceOf(RichEditor::class, $editor);
+        self::assertSame('18rem', $editor->getMinHeight());
     }
 
     public function testViewPageShowsImagePreviewAndLinksForOtherFiles(): void

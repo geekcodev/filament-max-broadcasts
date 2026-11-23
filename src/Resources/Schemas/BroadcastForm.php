@@ -62,6 +62,7 @@ class BroadcastForm
                             ->label(__('filament-max-broadcasts::broadcasts.form.text'))
                             ->required()
                             ->maxLength(4000)
+                            ->minHeight('18rem')
                             ->toolbarButtons([
                                 'blockquote',
                                 'bold',
