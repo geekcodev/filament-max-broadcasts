@@ -14,6 +14,7 @@ use GeekCo\FilamentMaxBroadcasts\Models\BroadcastRecipient;
 use GeekCo\FilamentMaxBroadcasts\Services\BroadcastSender;
 use GeekCo\FilamentMaxBroadcasts\Services\BroadcastTextSanitizer;
 use GeekCo\FilamentMaxBroadcasts\Support\BroadcastTypes;
+use GeekCo\FilamentMaxBroadcasts\Support\QueueLockTtl;
 use GeekCo\MaxPhpClient\Dto\Recipient;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -57,7 +58,7 @@ class SendBroadcastJob implements ShouldQueue
 
     public function handle(BroadcastSender $sender): void
     {
-        $lockTtl = config()->integer('filament-max-broadcasts.queue.lock_ttl_seconds', 600);
+        $lockTtl = QueueLockTtl::seconds();
 
         $lock = Cache::lock("broadcast:{$this->broadcast->id}", $lockTtl);
 

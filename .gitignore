@@ -8,3 +8,4 @@ coverage/
 .php-cs-fixer.cache
 composer.lock
 *.log
+.ci-sim/

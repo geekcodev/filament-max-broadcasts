@@ -16,6 +16,7 @@ use GeekCo\FilamentMaxBroadcasts\Support\ChatSelectionField;
 use GeekCo\LaravelMaxClient\Models\MaxChat;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Lang;
 
 class BroadcastConsentsTable
 {
@@ -31,7 +32,7 @@ class BroadcastConsentsTable
 
     private static function apply(Table $table, bool $withSegment): Table
     {
-        $managePermission = config()->string('filament-max-broadcasts.permissions.manage', 'broadcasts.manage');
+        $managePermission = config()->string('filament-max-broadcasts.permissions.manage', 'max_broadcasts.manage');
 
         $columns = [
             TextColumn::make('id')
@@ -39,16 +40,14 @@ class BroadcastConsentsTable
                 ->sortable(),
             TextColumn::make('chat_id')
                 ->label(__('filament-max-broadcasts::broadcasts.consent_table.chat_id'))
-                ->html()
-                ->getStateUsing(static fn (BroadcastConsent $record): string => self::chatBadges($record))
+                ->getStateUsing(static fn (BroadcastConsent $record): string => (string) $record->chat_id)
                 ->sortable()
                 ->searchable(),
             TextColumn::make('user_id')
                 ->label(__('filament-max-broadcasts::broadcasts.consent_table.user_id'))
-                ->html()
                 ->getStateUsing(
                     static fn (BroadcastConsent $record): ?string => $record->user_id !== null
-                        ? ChatSelectionField::idBadge($record->user_id)
+                        ? (string) $record->user_id
                         : null,
                 )
                 ->placeholder('—')
@@ -77,6 +76,10 @@ class BroadcastConsentsTable
         }
 
         return $table
+            ->modelLabel(__('filament-max-broadcasts::broadcasts.consent_table.model_label'))
+            ->pluralModelLabel(__('filament-max-broadcasts::broadcasts.consent_table.plural_model_label'))
+            ->emptyStateHeading(__('filament-max-broadcasts::broadcasts.consent_table.empty_heading'))
+            ->emptyStateDescription(__('filament-max-broadcasts::broadcasts.consent_table.empty_description'))
             ->modifyQueryUsing(
                 static fn (Builder $query): Builder => $query->with([
                     'segment',
@@ -92,12 +95,19 @@ class BroadcastConsentsTable
                     ->label(__('filament-max-broadcasts::broadcasts.consent_table.action'))
                     ->badge()
                     ->color(fn (BroadcastConsentAction $state): string => match ($state) {
+                        BroadcastConsentAction::Pending => 'gray',
                         BroadcastConsentAction::OptIn => 'success',
                         BroadcastConsentAction::OptOut => 'danger',
                     })
                     ->formatStateUsing(fn (BroadcastConsentAction $state): string => $state->label()),
                 TextColumn::make('source')
-                    ->label(__('filament-max-broadcasts::broadcasts.consent_table.source')),
+                    ->label(__('filament-max-broadcasts::broadcasts.consent_table.source'))
+                    ->formatStateUsing(static function (string $state): string {
+                        $key = 'filament-max-broadcasts::broadcasts.consent_table.source_values.'.$state;
+                        $label = Lang::get($key);
+
+                        return is_string($label) && $label !== $key ? $label : $state;
+                    }),
                 TextColumn::make('created_at')
                     ->label(__('filament-max-broadcasts::broadcasts.consent_table.created_at'))
                     ->dateTime('d.m.Y H:i')
@@ -157,11 +167,4 @@ class BroadcastConsentsTable
             });
     }
 
-    private static function chatBadges(BroadcastConsent $record): string
-    {
-        $chat = $record->chat;
-        $type = $chat instanceof Model ? ChatSelectionField::typeBadge($chat).' ' : '';
-
-        return $type.ChatSelectionField::idBadge($record->chat_id);
-    }
 }

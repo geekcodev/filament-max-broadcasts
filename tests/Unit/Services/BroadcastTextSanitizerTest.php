@@ -6,6 +6,8 @@ namespace GeekCo\FilamentMaxBroadcasts\Tests\Unit\Services;
 
 use GeekCo\FilamentMaxBroadcasts\Services\BroadcastTextSanitizer;
 use GeekCo\FilamentMaxBroadcasts\Tests\TestCase;
+use Dom\Element;
+use Dom\HTMLDocument;
 
 class BroadcastTextSanitizerTest extends TestCase
 {
@@ -121,5 +123,20 @@ class BroadcastTextSanitizerTest extends TestCase
     public function testToMaxHtmlEmpty(): void
     {
         self::assertSame('', $this->sanitizer->toMaxHtml('<script>alert(1)</script>'));
+    }
+
+    public function testUnwrapToleratesDetachedElement(): void
+    {
+        $document = HTMLDocument::createFromString('<span>x</span>', LIBXML_NOERROR, 'UTF-8');
+        $element = $document->body?->firstChild;
+
+        self::assertInstanceOf(Element::class, $element);
+
+        $element->remove();
+
+        $method = new \ReflectionMethod($this->sanitizer, 'unwrap');
+        $method->invoke($this->sanitizer, $element);
+
+        self::assertNull($element->parentNode);
     }
 }

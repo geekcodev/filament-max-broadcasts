@@ -11,15 +11,16 @@ use GeekCo\MaxPhpClient\Enum\ChatType;
 
 /**
  * Получатели сегмента рассылки: только активные диалоги (группы и каналы в сегменты не попадают).
+ *
+ * Аудитория сегмента задаётся вручную (chat_ids), а получатели рассылки — те, кто ответил
+ * opt_in: состав сегмента ответами не меняется. Поэтому у сегмента две разные величины:
+ * все активные диалоги и согласившиеся из них.
  */
 class BroadcastSegmentRecipients
 {
-    /**
-     * @return list<int> активные диалоги сегмента
-     */
-    public function dialogChatIds(BroadcastSegment $segment): array
-    {
-        return $this->dialogIdsWithin($segment->chat_ids ?? []);
+    public function __construct(
+        private readonly ?ConsentService $consent = null,
+    ) {
     }
 
     /**
@@ -46,12 +47,12 @@ class BroadcastSegmentRecipients
     }
 
     /**
-     * Число активных диалогов для каждого сегмента одним запросом.
+     * Число согласившихся активных диалогов для каждого сегмента одним запросом.
      *
      * @param  iterable<BroadcastSegment>  $segments
      * @return array<int, int> segment id => число получателей
      */
-    public function dialogCounts(iterable $segments): array
+    public function consentedCounts(iterable $segments): array
     {
         $list = [];
 
@@ -66,15 +67,27 @@ class BroadcastSegmentRecipients
         }
 
         $dialogs = array_flip($this->dialogIdsWithin($allIds));
+        $segmentIds = array_map(
+            static function (BroadcastSegment $segment): int {
+                /** @var int $id */
+                $id = $segment->getKey();
+
+                return $id;
+            },
+            $list,
+        );
+        $optedIn = $this->consentService()->optedInChatIdsBySegment($segmentIds);
 
         $counts = [];
 
         foreach ($list as $segment) {
             /** @var int $key */
             $key = $segment->getKey();
+            $consented = array_fill_keys($optedIn[$key] ?? [], true);
+
             $counts[$key] = count(array_filter(
                 array_unique(array_map('intval', $segment->chat_ids ?? [])),
-                static fn (int $chatId): bool => isset($dialogs[$chatId]),
+                static fn (int $chatId): bool => isset($dialogs[$chatId]) && isset($consented[$chatId]),
             ));
         }
 
@@ -104,5 +117,10 @@ class BroadcastSegmentRecipients
                 ->pluck('chat_id')
                 ->all(),
         ));
+    }
+
+    private function consentService(): ConsentService
+    {
+        return $this->consent ?? new ConsentService();
     }
 }

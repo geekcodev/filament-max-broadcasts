@@ -7,7 +7,7 @@ namespace GeekCo\FilamentMaxBroadcasts\Tests\Unit\Support;
 use GeekCo\FilamentMaxBroadcasts\Enums\BroadcastTypes\News;
 use GeekCo\FilamentMaxBroadcasts\Enums\BroadcastTypes\Promo;
 use GeekCo\FilamentMaxBroadcasts\Tests\TestCase;
-use GeekCo\MaxPhpClient\Enum\ButtonType;
+use GeekCo\MaxPhpClient\Dto\Button\LinkButton;
 
 class BroadcastTypeDefaultsTest extends TestCase
 {
@@ -53,15 +53,15 @@ class BroadcastTypeDefaultsTest extends TestCase
 
         self::assertCount(1, $rows);
 
-        $buttons = $rows[0]->buttons;
+        $buttons = $rows[0];
 
         self::assertCount(2, $buttons);
 
-        self::assertSame(ButtonType::Link, $buttons[0]->type);
+        self::assertInstanceOf(LinkButton::class, $buttons[0]);
         self::assertSame('Booking', $buttons[0]->text);
         self::assertSame('https://max.ru/mybot?startapp=booking', $buttons[0]->url);
 
-        self::assertSame(ButtonType::Link, $buttons[1]->type);
+        self::assertInstanceOf(LinkButton::class, $buttons[1]);
         self::assertSame('Support', $buttons[1]->text);
         self::assertSame('https://max.ru/mybot?startapp=consult', $buttons[1]->url);
     }

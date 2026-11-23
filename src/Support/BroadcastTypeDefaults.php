@@ -4,9 +4,7 @@ declare(strict_types=1);
 
 namespace GeekCo\FilamentMaxBroadcasts\Support;
 
-use GeekCo\MaxPhpClient\Dto\InlineKeyboardButton;
-use GeekCo\MaxPhpClient\Dto\InlineKeyboardButtonRow;
-use GeekCo\MaxPhpClient\Enum\ButtonType;
+use GeekCo\MaxPhpClient\Dto\Button\LinkButton;
 
 /**
  * Дефолтное поведение типов рассылок.
@@ -28,7 +26,7 @@ trait BroadcastTypeDefaults
     }
 
     /**
-     * @return list<InlineKeyboardButtonRow>
+     * @return list<list<\GeekCo\MaxPhpClient\Dto\Button>>
      */
     public function buttonRows(): array
     {
@@ -48,14 +46,13 @@ trait BroadcastTypeDefaults
         $row = [];
 
         foreach ($buttons as $button) {
-            $row[] = new InlineKeyboardButton(
-                type: ButtonType::Link,
-                text: (string) $button['text'],
-                url: $this->appDeepLink($botUsername, (string) $button['startapp']),
+            $row[] = new LinkButton(
+                (string) $button['text'],
+                $this->appDeepLink($botUsername, (string) $button['startapp']),
             );
         }
 
-        return [new InlineKeyboardButtonRow($row)];
+        return [$row];
     }
 
     public function badgeColor(): string

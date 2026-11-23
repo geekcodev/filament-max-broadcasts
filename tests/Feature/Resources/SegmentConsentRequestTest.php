@@ -105,7 +105,7 @@ class SegmentConsentRequestTest extends TestCase
         $this->actingAs($this->adminUser());
         $this->activeDialog(11, 1);
 
-        $segment = $this->segment();
+        $segment = BroadcastSegment::query()->create(['name' => 'VIP', 'chat_ids' => [11]]);
 
         Livewire::test(ViewBroadcastSegment::class, ['record' => $segment->getKey()])
             ->callAction('request_consent');

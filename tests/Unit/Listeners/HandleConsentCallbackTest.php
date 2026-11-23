@@ -92,6 +92,11 @@ class HandleConsentCallbackTest extends TestCase
             'callback' => [
                 'callback_id' => 'cb-1',
                 'payload' => $payload,
+                'user' => $userId !== null ? [
+                    'user_id' => $userId,
+                    'first_name' => 'Test',
+                    'is_bot' => false,
+                ] : null,
                 'message' => [
                     'recipient' => ['chat_id' => $chatId],
                     'timestamp' => 1700000000,
@@ -105,14 +110,6 @@ class HandleConsentCallbackTest extends TestCase
             ],
         ];
 
-        if ($userId !== null) {
-            $data['user'] = [
-                'user_id' => $userId,
-                'first_name' => 'Test',
-                'is_bot' => false,
-            ];
-        }
-
         return $this->makeUpdate($data);
     }
 
@@ -122,7 +119,12 @@ class HandleConsentCallbackTest extends TestCase
 
         $update = $this->makeUpdate([
             'update_type' => 'message_created',
-            'chat_id' => 111,
+            'message' => [
+                'sender' => ['user_id' => 1, 'first_name' => 'Test', 'is_bot' => false],
+                'recipient' => ['chat_id' => 111],
+                'timestamp' => 1700000000,
+                'body' => ['mid' => 'mid-1', 'seq' => 1, 'text' => 'Привет'],
+            ],
         ]);
 
         $listener->handle(new MaxUpdateReceived($update));
@@ -189,7 +191,8 @@ class HandleConsentCallbackTest extends TestCase
         self::assertStringContainsString('/answers', $answerUri);
         self::assertStringContainsString('callback_id=cb-1', $answerUri);
 
-        self::assertSame([111], $segment->refresh()->chat_ids);
+        self::assertSame([], $segment->refresh()->chat_ids);
+        self::assertSame([111], $this->service->optedInChatIds($segment->id));
 
         $consent = BroadcastConsent::query()->first();
         self::assertNotNull($consent);
@@ -216,7 +219,8 @@ class HandleConsentCallbackTest extends TestCase
         $listener->handle(new MaxUpdateReceived($update));
 
         self::assertSame(3, $http->callCount);
-        self::assertSame([333], $segment->refresh()->chat_ids);
+        self::assertSame([], $segment->refresh()->chat_ids);
+        self::assertSame([333], $this->service->optedInChatIds($segment->id));
 
         self::assertSame('DELETE', $http->requests[0]->getMethod());
 
@@ -240,11 +244,14 @@ class HandleConsentCallbackTest extends TestCase
 
         $update = $this->makeUpdate([
             'update_type' => 'message_callback',
-            'chat_id' => 111,
-            'message_id' => '',
             'callback' => [
                 'callback_id' => 'cb-1',
                 'payload' => 'consent:'.$segment->id.':opt_in',
+                'message' => [
+                    'recipient' => ['chat_id' => 111],
+                    'timestamp' => 1700000000,
+                    'body' => ['mid' => '', 'seq' => 1],
+                ],
             ],
         ]);
 
@@ -255,7 +262,8 @@ class HandleConsentCallbackTest extends TestCase
         self::assertStringContainsString('/messages', (string) $http->requests[0]->getUri());
         self::assertStringNotContainsString('message_id=', (string) $http->requests[0]->getUri());
         self::assertStringContainsString('/answers', (string) $http->requests[1]->getUri());
-        self::assertSame([111], $segment->refresh()->chat_ids);
+        self::assertSame([], $segment->refresh()->chat_ids);
+        self::assertSame([111], $this->service->optedInChatIds($segment->id));
     }
 
     public function testFallbackIsSkippedWhenDeleteFailsAndMessageTextUnavailable(): void
@@ -270,11 +278,14 @@ class HandleConsentCallbackTest extends TestCase
 
         $update = $this->makeUpdate([
             'update_type' => 'message_callback',
-            'chat_id' => 111,
-            'message_id' => 'mid-poll',
             'callback' => [
                 'callback_id' => 'cb-1',
                 'payload' => 'consent:'.$segment->id.':opt_in',
+                'message' => [
+                    'recipient' => ['chat_id' => 111],
+                    'timestamp' => 1700000000,
+                    'body' => ['mid' => 'mid-poll', 'seq' => 1, 'text' => ''],
+                ],
             ],
         ]);
 
@@ -284,7 +295,8 @@ class HandleConsentCallbackTest extends TestCase
         self::assertSame('DELETE', $http->requests[0]->getMethod());
         self::assertSame('POST', $http->requests[1]->getMethod());
         self::assertStringContainsString('/answers', (string) $http->requests[2]->getUri());
-        self::assertSame([111], $segment->refresh()->chat_ids);
+        self::assertSame([], $segment->refresh()->chat_ids);
+        self::assertSame([111], $this->service->optedInChatIds($segment->id));
     }
 
     public function testIgnoresCallbackUpdateWithoutCallbackPayload(): void
@@ -293,7 +305,7 @@ class HandleConsentCallbackTest extends TestCase
 
         $update = $this->makeUpdate([
             'update_type' => 'message_callback',
-            'chat_id' => 111,
+            'callback' => ['callback_id' => 'cb-1'],
         ]);
 
         $listener->handle(new MaxUpdateReceived($update));
@@ -350,8 +362,32 @@ class HandleConsentCallbackTest extends TestCase
         $consent = BroadcastConsent::query()->where('chat_id', 111)->first();
         self::assertNotNull($consent);
         self::assertSame(BroadcastConsentAction::OptIn, $consent->action);
-        self::assertSame([111], $segment->refresh()->chat_ids);
+        self::assertSame([], $segment->refresh()->chat_ids);
+        self::assertSame([111], $this->service->optedInChatIds($segment->id));
         self::assertStringContainsString('/messages', (string) $http->requests[2]->getUri());
+    }
+
+    public function testConsentIsRecordedEvenWhenDeleteAndEditFallbackBothFail(): void
+    {
+        $segment = BroadcastSegment::query()->create(['name' => 'Новости', 'chat_ids' => []]);
+
+        [$http, , $listener] = $this->makeListener([
+            $this->errorResponse(), // deleteMessage fails
+            $this->errorResponse(), // editMessage fallback fails too
+            $this->messageResponse(), // sendMessage
+            $this->successResponse(), // sendAnswer
+        ]);
+
+        $listener->handle(new MaxUpdateReceived($this->callbackUpdate('consent:'.$segment->id.':opt_in', 111, 222)));
+
+        self::assertSame(4, $http->callCount);
+        self::assertSame('PUT', $http->requests[1]->getMethod());
+        self::assertSame('POST', $http->requests[2]->getMethod());
+
+        $consent = BroadcastConsent::query()->where('chat_id', 111)->first();
+        self::assertNotNull($consent);
+        self::assertSame(BroadcastConsentAction::OptIn, $consent->action);
+        self::assertSame([111], $this->service->optedInChatIds($segment->id));
     }
 
     public function testConsentIsRecordedEvenWhenConfirmationFails(): void
@@ -416,8 +452,10 @@ class HandleConsentCallbackTest extends TestCase
         $listener->handle(new MaxUpdateReceived($this->callbackUpdate('consent:'.$vip->id.':opt_in', 111, 222)));
 
         self::assertSame(3, $http->callCount);
-        self::assertSame([111], $vip->refresh()->chat_ids);
+        self::assertSame([], $vip->refresh()->chat_ids);
         self::assertSame([], $news->refresh()->chat_ids);
+        self::assertSame([111], $this->service->optedInChatIds($vip->id));
+        self::assertSame([], $this->service->optedInChatIds($news->id));
         self::assertSame(
             $vip->id,
             BroadcastConsent::query()->where('chat_id', 111)->sole()->segment_id,

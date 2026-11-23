@@ -11,7 +11,7 @@ class BroadcastConsentActionTest extends TestCase
 {
     public function testValues(): void
     {
-        self::assertSame(['opt_in', 'opt_out'], $this->caseValues());
+        self::assertSame(['pending', 'opt_in', 'opt_out'], $this->caseValues());
     }
 
     /**
@@ -32,6 +32,7 @@ class BroadcastConsentActionTest extends TestCase
     {
         app()->setLocale('ru');
 
+        self::assertSame('Ожидает ответа', BroadcastConsentAction::Pending->label());
         self::assertSame('Согласен', BroadcastConsentAction::OptIn->label());
         self::assertSame('Не согласен', BroadcastConsentAction::OptOut->label());
     }
@@ -40,6 +41,7 @@ class BroadcastConsentActionTest extends TestCase
     {
         app()->setLocale('en');
 
+        self::assertSame('Awaiting response', BroadcastConsentAction::Pending->label());
         self::assertSame('Agree', BroadcastConsentAction::OptIn->label());
         self::assertSame('Disagree', BroadcastConsentAction::OptOut->label());
     }

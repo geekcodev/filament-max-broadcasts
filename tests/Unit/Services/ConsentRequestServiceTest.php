@@ -40,21 +40,54 @@ class ConsentRequestServiceTest extends TestCase
         ]);
     }
 
-    private function segment(string $name = 'VIP'): BroadcastSegment
+    /**
+     * @param  list<int>  $chatIds
+     */
+    private function segment(string $name = 'VIP', array $chatIds = []): BroadcastSegment
     {
         return BroadcastSegment::query()->create([
             'name' => $name,
-            'chat_ids' => [],
+            'chat_ids' => $chatIds,
         ]);
     }
 
-    public function testEligibleChatsAreActiveDialogsWithoutAnswerForSegment(): void
+    public function testEligibleChatsAreSegmentDialogsWithoutAnswer(): void
     {
         $this->dialog(11, 1);
         $this->dialog(22, 2);
-        $segment = $this->segment();
+        $segment = $this->segment('VIP', [11, 22]);
 
         $this->consent->optIn(22, 2, $segment->id);
+
+        self::assertSame([11], $this->service->eligibleChatIds($segment));
+    }
+
+    public function testPendingRequestDoesNotCountAsAnswer(): void
+    {
+        $this->dialog(11, 1);
+        $this->dialog(22, 2);
+        $segment = $this->segment('VIP', [11, 22]);
+
+        $this->consent->requestSent(11, 1, $segment->id);
+
+        self::assertSame([11, 22], $this->service->eligibleChatIds($segment));
+    }
+
+    public function testNoAnswerAlsoExcludesChatsFromRequests(): void
+    {
+        $this->dialog(11, 1);
+        $segment = $this->segment('VIP', [11]);
+
+        $this->consent->optOut(11, 1, $segment->id);
+
+        self::assertSame([], $this->service->eligibleChatIds($segment));
+    }
+
+    public function testChatsOutsideTheSegmentAreNotEligible(): void
+    {
+        $this->dialog(11, 1);
+        $this->dialog(22, 2);
+        $segment = $this->segment('VIP', [11]);
 
         self::assertSame([11], $this->service->eligibleChatIds($segment));
     }
@@ -63,12 +96,12 @@ class ConsentRequestServiceTest extends TestCase
     {
         $this->dialog(11, 1);
         $this->dialog(22, 2);
-        $vip = $this->segment('VIP');
-        $news = $this->segment('Новости');
+        $vip = $this->segment('VIP', [22]);
+        $news = $this->segment('Новости', [11, 22]);
 
         $this->consent->optIn(22, 2, $vip->id);
 
-        self::assertEqualsCanonicalizing([11, 22], $this->service->eligibleChatIds($news));
+        self::assertSame([11, 22], $this->service->eligibleChatIds($news));
     }
 
     public function testGroupsAndChannelsAreNotEligible(): void
@@ -76,13 +109,22 @@ class ConsentRequestServiceTest extends TestCase
         Chats::create(33, 33, ['status' => MaxChatStatus::Active, 'chat_type' => ChatType::Chat]);
         Chats::create(44, 44, ['status' => MaxChatStatus::Active, 'chat_type' => ChatType::Channel]);
 
-        self::assertSame([], $this->service->eligibleChatIds($this->segment()));
+        self::assertSame([], $this->service->eligibleChatIds($this->segment('Mixed', [33, 44])));
+    }
+
+    public function testInactiveSegmentsChatsAreNotEligible(): void
+    {
+        $this->dialog(11, 1);
+        Chats::create(22, 2, ['status' => MaxChatStatus::Stopped, 'chat_type' => ChatType::Dialog]);
+        $segment = $this->segment('VIP', [11, 22]);
+
+        self::assertSame([11], $this->service->eligibleChatIds($segment));
     }
 
     public function testEligibleChatIdsIsEmptyWhenEveryoneAnswered(): void
     {
         $this->dialog(11, 1);
-        $segment = $this->segment();
+        $segment = $this->segment('VIP', [11]);
 
         $this->consent->optIn(11, 1, $segment->id);
 
@@ -94,7 +136,7 @@ class ConsentRequestServiceTest extends TestCase
         Queue::fake();
         $this->dialog(11, 1);
         $this->dialog(22, 2);
-        $segment = $this->segment();
+        $segment = $this->segment('VIP', [11, 22]);
 
         self::assertSame(2, $this->service->sendRequest($segment));
 
@@ -108,11 +150,21 @@ class ConsentRequestServiceTest extends TestCase
     {
         Queue::fake();
         $this->dialog(11, 1);
-        $segment = $this->segment();
+        $segment = $this->segment('VIP', [11]);
 
         $this->consent->optIn(11, 1, $segment->id);
 
         self::assertSame(0, $this->service->sendRequest($segment));
+
+        Queue::assertNotPushed(SendConsentRequestsJob::class);
+    }
+
+    public function testSendRequestDoesNotDispatchForEmptySegment(): void
+    {
+        Queue::fake();
+        $this->dialog(11, 1);
+
+        self::assertSame(0, $this->service->sendRequest($this->segment()));
 
         Queue::assertNotPushed(SendConsentRequestsJob::class);
     }

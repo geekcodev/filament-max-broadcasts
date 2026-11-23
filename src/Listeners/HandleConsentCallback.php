@@ -9,8 +9,8 @@ use GeekCo\LaravelMaxClient\Webhook\MaxUpdateReceived;
 use GeekCo\MaxPhpClient\ApiClient;
 use GeekCo\MaxPhpClient\Dto\NewMessageBody;
 use GeekCo\MaxPhpClient\Dto\Recipient;
+use GeekCo\MaxPhpClient\Dto\Update\MessageCallbackUpdate;
 use GeekCo\MaxPhpClient\Enum\TextFormat;
-use GeekCo\MaxPhpClient\Enum\UpdateType;
 use GeekCo\MaxPhpClient\Exception\MaxApiException;
 use Illuminate\Support\Facades\Log;
 
@@ -23,7 +23,7 @@ use Illuminate\Support\Facades\Log;
  * чувствительных данных (callback_id, payload), как требует laravel-max-client.
  *
  * После обработки: удаляет исходное сообщение с опросом (deleteMessage), отправляет
- * подтверждающее сообщение в чат (sendMessage) и отвечает на callback (sendAnswer).
+ * подтверждающее сообщение в чат (sendMessage) и отвечает на callback (answerCallback).
  * Если удалить сообщение не удалось, кнопки убираются правкой (editMessage): опрос
  * нельзя нажать повторно, а согласие всё равно записано.
  */
@@ -39,13 +39,13 @@ class HandleConsentCallback
     {
         $update = $event->update;
 
-        if ($update->updateType !== UpdateType::MessageCallback) {
+        if (! $update instanceof MessageCallbackUpdate) {
             return;
         }
 
         $callback = $update->callback;
 
-        if ($callback === null || $callback->callbackId === '' || $callback->payload === null) {
+        if ($callback->callbackId === '' || $callback->payload === null) {
             return;
         }
 
@@ -56,8 +56,8 @@ class HandleConsentCallback
             return;
         }
 
-        $chatId = $update->chatId;
-        $userId = $update->user?->userId;
+        $chatId = $update->message?->recipient->chatId;
+        $userId = ($callback->user ?? $update->message?->sender)?->userId;
 
         if ($chatId === null) {
             return;
@@ -82,9 +82,9 @@ class HandleConsentCallback
             ? config()->string('filament-max-broadcasts.consent.answer_notification_opt_in', 'Вы согласились на получение рассылок.')
             : config()->string('filament-max-broadcasts.consent.answer_notification_opt_out', 'Вы отказались от получения рассылок.');
 
-        $pollText = $callback->message?->body?->text;
-        $pollFormat = $callback->message?->body->format ?? TextFormat::Html;
-        $messageId = $update->messageId ?? $callback->message?->body?->mid;
+        $pollText = $update->message->body?->text;
+        $pollFormat = TextFormat::Html;
+        $messageId = $update->message->body?->mid;
 
         $this->deletePollMessage($messageId, $pollText, $pollFormat);
         $this->sendConfirmation($chatId, $confirmation);
@@ -147,7 +147,7 @@ class HandleConsentCallback
     private function acknowledgeCallback(string $callbackId, string $notification): void
     {
         try {
-            $this->api->sendAnswer($callbackId, notification: $notification);
+            $this->api->answerCallback($callbackId, notification: $notification);
         } catch (MaxApiException $exception) {
             Log::error('MAX consent answer failed', [
                 'callback_id' => $callbackId,

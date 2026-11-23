@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace GeekCo\FilamentMaxBroadcasts\Tests\Unit;
 
 use Filament\Facades\Filament;
+use Filament\Panel;
 use GeekCo\FilamentMaxBroadcasts\FilamentMaxBroadcastsPlugin;
 use GeekCo\FilamentMaxBroadcasts\Resources\BroadcastConsentResource;
 use GeekCo\FilamentMaxBroadcasts\Resources\BroadcastResource;
@@ -20,7 +21,7 @@ class FilamentMaxBroadcastsPluginTest extends TestCase
 
     public function testPanelRegistersPackageResourcesByDefault(): void
     {
-        $resources = Filament::getPanel('admin')->getResources();
+        $resources = $this->adminPanel()->getResources();
 
         self::assertContains(BroadcastResource::class, $resources);
         self::assertContains(BroadcastSegmentResource::class, $resources);
@@ -29,7 +30,7 @@ class FilamentMaxBroadcastsPluginTest extends TestCase
 
     public function testResourcesCanBeOverridden(): void
     {
-        $panel = Filament::getPanel('admin');
+        $panel = $this->adminPanel();
 
         $plugin = FilamentMaxBroadcastsPlugin::make()
             ->resource(BroadcastSegmentResource::class)
@@ -44,5 +45,19 @@ class FilamentMaxBroadcastsPluginTest extends TestCase
         self::assertContains(BroadcastSegmentResource::class, $resources);
         self::assertContains(BroadcastConsentResource::class, $resources);
         self::assertContains(BroadcastResource::class, $resources);
+    }
+
+    /**
+     * Возвращаемый тип getPanel() менялся между минорными версиями Filament
+     * (Panel и Panel|null), поэтому тип фиксируется явно и проверяется в тесте.
+     */
+    private function adminPanel(): Panel
+    {
+        /** @var Panel|null $panel */
+        $panel = Filament::getPanel('admin');
+
+        self::assertInstanceOf(Panel::class, $panel);
+
+        return $panel;
     }
 }

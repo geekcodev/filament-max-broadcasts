@@ -103,7 +103,7 @@ class BroadcastResource extends Resource
 
     public static function canAccess(): bool
     {
-        $permission = config()->string('filament-max-broadcasts.permissions.view', 'broadcasts.view');
+        $permission = config()->string('filament-max-broadcasts.permissions.view', 'max_broadcasts.view');
 
         $user = auth()->user();
 
@@ -112,7 +112,7 @@ class BroadcastResource extends Resource
 
     public static function canCreate(): bool
     {
-        $permission = config()->string('filament-max-broadcasts.permissions.create', 'broadcasts.create');
+        $permission = config()->string('filament-max-broadcasts.permissions.create', 'max_broadcasts.create');
 
         $user = auth()->user();
 
@@ -121,7 +121,7 @@ class BroadcastResource extends Resource
 
     public static function canView(Model $record): bool
     {
-        $permission = config()->string('filament-max-broadcasts.permissions.view', 'broadcasts.view');
+        $permission = config()->string('filament-max-broadcasts.permissions.view', 'max_broadcasts.view');
 
         $user = auth()->user();
 

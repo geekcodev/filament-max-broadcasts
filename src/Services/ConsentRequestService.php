@@ -14,10 +14,12 @@ use Illuminate\Database\Eloquent\Collection;
 /**
  * Запрос согласия по кнопке «Запросить согласие» в сегменте.
  *
- * Получатели запроса — активные диалоги без записи согласия именно в этом сегменте
- * (группы и каналы не опрашиваются: согласие личное). Факт получения не фиксируется:
- * проигнорировавшие запрос получат его снова, ответившие — никогда. Сама отправка —
- * в очереди (SendConsentRequestsJob), сервис считает кандидатов и ставит задачу.
+ * Опрашиваются получатели самого сегмента: активные диалоги из chat_ids, которые ещё
+ * не ответили на запрос по этому сегменту. Ответившие (и opt_in, и opt_out) запрос
+ * повторно не получают; проигнорировавшие — получают. Состав сегмента ответами не
+ * меняется, согласие хранится в max_broadcast_consents.
+ *
+ * Отправка — в очереди (SendConsentRequestsJob), сервис считает кандидатов и ставит задачу.
  */
 class ConsentRequestService
 {
@@ -33,23 +35,34 @@ class ConsentRequestService
     }
 
     /**
-     * Активные диалоги без записи согласия для сегмента.
+     * Получатели сегмента (активные диалоги), которые ещё не ответили.
+     *
+     * Запись pending — это отправленный запрос, а не ответ, поэтому такие чаты
+     * остаются кандидатами и при повторном нажатии кнопки получают запрос снова.
      *
      * @return Collection<int, MaxChat>
      */
     public function eligibleChats(BroadcastSegment $segment): Collection
     {
-        $answered = array_fill_keys($this->consentService->answeredChatIds($segment->id), true);
+        /** @var int $segmentId */
+        $segmentId = $segment->getKey();
+
+        $answered = array_fill_keys($this->consentService->answeredChatIds($segmentId), true);
+        $members = array_values(array_unique(array_map('intval', $segment->chat_ids ?? [])));
+
+        if ($members === []) {
+            return new Collection();
+        }
 
         return $this->resolver
-            ->resolve()
+            ->resolveForChatIds($members)
             ->filter(
                 static function (MaxChat $chat) use ($answered): bool {
                     /** @var int $chatId */
                     $chatId = $chat->getAttribute('chat_id');
 
-                    return ChatRegistry::chatType($chat) === ChatType::Dialog->value
-                        && ! isset($answered[$chatId]);
+                    return ! isset($answered[$chatId])
+                        && ChatRegistry::chatType($chat) === ChatType::Dialog->value;
                 },
             )
             ->values();
@@ -73,7 +86,7 @@ class ConsentRequestService
     }
 
     /**
-     * Ставит в очередь запрос согласия для сегмента всем ещё не ответившим диалогам.
+     * Ставит в очередь запрос согласия для сегмента всем ещё не ответившим его получателям.
      *
      * @return int число получателей (0 — некого опрашивать)
      */

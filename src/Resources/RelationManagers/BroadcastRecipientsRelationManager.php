@@ -11,7 +11,6 @@ use Filament\Tables\Table;
 use GeekCo\FilamentMaxBroadcasts\Enums\BroadcastRecipientStatus;
 use GeekCo\FilamentMaxBroadcasts\Models\BroadcastRecipient;
 use GeekCo\FilamentMaxBroadcasts\Support\ChatRegistry;
-use GeekCo\FilamentMaxBroadcasts\Support\ChatSelectionField;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 
@@ -55,18 +54,16 @@ class BroadcastRecipientsRelationManager extends RelationManager
                     }),
                 TextColumn::make('user_id')
                     ->label(__('filament-max-broadcasts::broadcasts.recipients.user_id'))
-                    ->html()
                     ->getStateUsing(
                         static fn (BroadcastRecipient $record): ?string => $record->user_id !== null
-                            ? ChatSelectionField::idBadge($record->user_id)
+                            ? (string) $record->user_id
                             : null,
                     )
                     ->placeholder('—')
                     ->searchable(),
                 TextColumn::make('chat_id')
                     ->label(__('filament-max-broadcasts::broadcasts.recipients.chat_id'))
-                    ->html()
-                    ->getStateUsing(static fn (BroadcastRecipient $record): ?string => self::chatBadges($record))
+                    ->getStateUsing(static fn (BroadcastRecipient $record): string => (string) $record->chat_id)
                     ->placeholder('—')
                     ->searchable(),
                 TextColumn::make('status')
@@ -93,15 +90,4 @@ class BroadcastRecipientsRelationManager extends RelationManager
             ->defaultSort('id');
     }
 
-    private static function chatBadges(BroadcastRecipient $record): ?string
-    {
-        if ($record->chat_id === null) {
-            return null;
-        }
-
-        $chat = $record->maxChat;
-        $type = $chat instanceof Model ? ChatSelectionField::typeBadge($chat).' ' : '';
-
-        return $type.ChatSelectionField::idBadge($record->chat_id);
-    }
 }

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace GeekCo\FilamentMaxBroadcasts\Resources\Pages;
 
+use Filament\Actions\Action;
 use Filament\Resources\Pages\CreateRecord;
 use GeekCo\FilamentMaxBroadcasts\Enums\BroadcastTypes\News;
 use GeekCo\FilamentMaxBroadcasts\Models\Broadcast;
@@ -15,6 +16,26 @@ use Illuminate\Support\Carbon;
 class CreateBroadcast extends CreateRecord
 {
     protected static string $resource = BroadcastResource::class;
+
+    public function canCreateAnother(): bool
+    {
+        return false;
+    }
+
+    protected function getRedirectUrl(): string
+    {
+        return $this->getResourceUrl();
+    }
+
+    protected function getCreateFormAction(): Action
+    {
+        return parent::getCreateFormAction()->outlined()->icon('heroicon-o-plus');
+    }
+
+    protected function getCancelFormAction(): Action
+    {
+        return parent::getCancelFormAction()->outlined()->icon('heroicon-o-x-mark');
+    }
 
     /**
      * @param  array{text: string, type?: string, images?: list<string>, videos?: list<string>, files?: list<string>, scheduled_at?: string|null, recipient_chat_ids?: list<int>|null, segment_ids?: list<int>|null}  $data

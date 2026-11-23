@@ -6,9 +6,9 @@ return [
 
     // Права (проверяются через $user->can(...) — совместимо со spatie/laravel-permission и Gate).
     'permissions' => [
-        'view'   => env('FILAMENT_MAX_BROADCASTS_PERMISSION_VIEW', 'broadcasts.view'),
-        'create' => env('FILAMENT_MAX_BROADCASTS_PERMISSION_CREATE', 'broadcasts.create'),
-        'manage' => env('FILAMENT_MAX_BROADCASTS_PERMISSION_MANAGE', 'broadcasts.manage'),
+        'view'   => env('MAX_PERMISSION_BROADCASTS_VIEW', 'max_broadcasts.view'),
+        'create' => env('MAX_PERMISSION_BROADCASTS_CREATE', 'max_broadcasts.create'),
+        'manage' => env('MAX_PERMISSION_BROADCASTS_MANAGE', 'max_broadcasts.manage'),
     ],
 
     // Модели.
@@ -16,7 +16,7 @@ return [
     'recipient_model' => GeekCo\FilamentMaxBroadcasts\Models\BroadcastRecipient::class,
     'segment_model'   => GeekCo\FilamentMaxBroadcasts\Models\BroadcastSegment::class,
     'chats_model'     => GeekCo\LaravelMaxClient\Models\MaxChat::class,
-    'user_model'      => env('FILAMENT_MAX_BROADCASTS_USER_MODEL', \Illuminate\Foundation\Auth\User::class),
+    'user_model'      => env('MAX_BROADCASTS_USER_MODEL', \Illuminate\Foundation\Auth\User::class),
 
     // Типы рассылок: токен => класс, реализующий BroadcastTypeContract.
     // Каждый тип — свой backed-enum (case value === токен), поведение — в самом
@@ -39,7 +39,7 @@ return [
     //         ['text' => 'Консультация',     'startapp' => 'consult'],
     //     ],
     // ],
-    'bot_username' => env('FILAMENT_MAX_BROADCASTS_BOT_USERNAME', ''),
+    'bot_username' => env('MAX_BOT_USERNAME', ''),
     'buttons' => [
         'per_type' => [],
     ],
@@ -47,6 +47,7 @@ return [
     // Очередь / отправка.
     'queue' => [
         'batch_size'         => 25,
+        // Нижняя граница TTL лока: фактический TTL — max(lock_ttl_seconds, timeout) + 60.
         'lock_ttl_seconds'   => 600,
         'tries'              => 3,
         'timeout'            => 3600,
@@ -54,13 +55,32 @@ return [
     ],
 
     // Вложения рассылки (картинки, видео, файлы — по несколько на рассылку).
+    // Диск может быть локальным (публичным или приватным) либо объектным хранилищем
+    // (S3 и подобные): перед отправкой файл читается с диска, для объектного хранилища —
+    // через временную локальную копию. Файлы уходят в MAX через uploadMedia и дальше
+    // отдаются серверами MAX, поэтому публичный HTTP-доступ к диску не нужен и по
+    // умолчанию выключен: диск `local` (storage/app/private), а в админке вложения
+    // показываются по временным подписанным ссылкам. Для предпросмотра на диске `local`
+    // нужен 'serve' => true в config/filesystems.php (значение по умолчанию в Laravel 11+).
     'image' => [
-        'disk'      => env('FILAMENT_MAX_BROADCASTS_IMAGE_DISK', 'public'),
-        'directory' => env('FILAMENT_MAX_BROADCASTS_IMAGE_DIRECTORY', 'broadcasts'),
-        'max_kb'    => (int) env('FILAMENT_MAX_BROADCASTS_IMAGE_MAX_KB', 51200), // лимит MAX: 50 МБ = 51200 КБ
+        'disk'      => env('MAX_BROADCASTS_IMAGE_DISK', 'local'),
+        'directory' => env('MAX_BROADCASTS_IMAGE_DIRECTORY', 'broadcasts'),
+        'max_kb'    => (int) env('MAX_BROADCASTS_IMAGE_MAX_KB', 51200), // лимит MAX: 50 МБ = 51200 КБ
         'accepted_mime_types' => [
             'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/tiff', 'image/bmp', 'image/heic',
             'video/mp4', 'video/webm', 'video/quicktime', 'video/x-matroska',
+        ],
+        'accepted_file_types' => [
+            'application/pdf',
+            'application/msword',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'application/vnd.ms-excel',
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'application/vnd.ms-powerpoint',
+            'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+            'text/plain',
+            'text/csv',
+            'application/zip',
         ],
     ],
 
@@ -70,10 +90,12 @@ return [
     ],
 
     // Согласие получателей на рассылку (opt-in через callback-кнопки).
+    // Сегмент — вручную заданная аудитория, ответы её состав не меняют: согласие
+    // хранится в max_broadcast_consents, а рассылка по сегменту уходит только opt_in.
     // Слушатель HandleConsentCallback обрабатывает MessageCallback и привязывает
     // ответ к сегменту из payload кнопки. Payload кнопок всегда
     // consent:<segmentId>:<action>; опросы без сегмента не принимаются.
-    // segment_name — стартовый сегмент для вызовов ConsentService без segmentId.
+    // segment_name — имя стартового пустого сегмента, который создаёт миграция.
     // :segment в request_message — название сегмента.
     'consent' => [
         'consent_model'       => GeekCo\FilamentMaxBroadcasts\Models\BroadcastConsent::class,

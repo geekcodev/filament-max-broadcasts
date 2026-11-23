@@ -12,13 +12,15 @@
   `max_chats`/`max_users`, вебхук-доставка апдейтов) и ядра `geekcodev/max-php-client` (Bot API MAX).
   Репозиторий/рабочая папка — `filament-max-broadcasts`, переиспользуемый автономный пакет.
 - **Что даёт.** Filament-ресурс «Рассылки» (`BroadcastResource`): создание (текст HTML, тип «Новость/Акция»,
-  медиавложения — картинки/видео/файлы, отложенная отправка), выбор получателей — несколько сегментов и/или конкретные
-  чаты (снимок `recipient_chat_ids`, повтор тем же людям), отправка через MAX API с санитизацией HTML и настраиваемыми
-  кнопками-диплинками, статусы `scheduled → running → completed/cancelled/failed` со счётчиками, очередь
+  медиавложения — картинки/видео/файлы, отложенная отправка), выбор получателей — сегменты (согласившиеся диалоги)
+  и/или группы и каналы (снимок `recipient_chat_ids`, повтор тем же людям с учётом свежих отказов), отправка через MAX
+  API с санитизацией HTML и настраиваемыми кнопками-диплинками, статусы
+  `scheduled → running → completed/cancelled/failed` со счётчиками, очередь
   `SendBroadcastJob` с локом/батчами/ретраями/отменой, страницы список/создание/просмотр и relation manager получателей.
   Плюс два смежных модуля: сегменты получателей (`BroadcastSegmentResource` — именованные группы чатов)
-  и opt-in согласие на рассылку (callback-кнопки MAX, сегмент «Новости и акции», действие «Запросить согласие» на списке
-  рассылок) с журналом согласий `BroadcastConsentResource`.
+  и opt-in согласие на рассылку (callback-кнопки MAX, сегмент «Новости и акции», действие «Запросить согласие» на
+  странице и в таблице сегментов) с журналом согласий `BroadcastConsentResource`. Сегмент — вручную заданная аудитория:
+  запрос уходит его получателям без ответа, а рассылка по сегменту — только ответившим «Да».
 - **Принцип.** Плагин самодостаточен для рассылок: модели `Broadcast`/`BroadcastRecipient`, сервисы, job и Filament-
   ресурс живут внутри пакета. От хост-приложения он ожидает только: опубликованные миграции laravel-max-client
   (`max_chats`/`max_users`), рабочую очередь и настройку прав. Механизмы laravel-max-client не дублируются — используем
@@ -34,25 +36,18 @@
 пакету за раз: два аргумента `composer show` не принимает), релизные теги — `git tag --sort=-v:refname` здесь и в
 соседних `../laravel-max-client`, `../max-php-client`.
 
-Constraint `geekcodev/laravel-max-client: ^1.2.0` и `geekcodev/max-php-client: ^1.1.8` (v1.1.0, 2026-10-02) закрыл
-долговое решение пункта 1 плана: поддерживаемой считается форма 1.2, а код проверен на обеих формах реестра. Плагин
-читает из `max_chats` поля `status`, `chat_type`, `last_activity_at` и фильтрует `status = active`, но **форма реестра
-различается** между версиями ядра, и от неё зависят ключ строки, связи чат-пользователь и колонка `title`:
+Целевые constraints — `geekcodev/laravel-max-client: ^2.0` и `geekcodev/max-php-client: ^2.0` (типизированные события
+MAX). Ядро и адаптер выпущены тегом `v2.0.0`; `dev-new` из ветки `new` больше не используется, path-repositories нет.
+Поддерживается только форма реестра 1.2 (`laravel-max-client` v2): строка на чат, `chat_id` — первичный ключ, участники
+в `max_chat_users` (`chatUsers`, `maxUsers`), у групп и каналов есть `title`. Поддержка формы 1.1.x удалена в v2.0.0
+вместе с legacy-ветками адаптера. Плагин читает из `max_chats` поля `status`, `chat_type`,
+`last_activity_at` и фильтрует `status = active`.
 
-- **1.1.x** — строка на пару (пользователь, чат): есть колонка `user_id` и `unique(user_id, chat_id)`, поэтому один чат
-  присутствует в реестре несколькими строками (дедуп по `chat_id` в `BroadcastRecipientsResolver` обязателен), а
-  `chat_id` объявлен `unsignedBigInteger` — MySQL отрицательные идентификаторы групп и каналов отвергнет (на PostgreSQL
-  `unsignedBigInteger` это знаковый `bigint`, то есть проблема специфична для MySQL);
-- **1.2.0** — строка на чат: первичный ключ `chat_id` (знаковый `bigInteger`), связи чат-пользователь вынесены в
-  `max_chat_users` (`chatUsers`, `maxUsers`), есть `title`, метаданные и `status` обязательны.
-
-Различия скрыты адаптером `Support\ChatRegistry` (единственное место в `src/`, которое знает про форму реестра):
-`userRelation()`, `withUsers()`, `whereUserLike()`, `user()`, `userId()`, `displayName()`. Вне адаптера обращаться к
-`maxUser`, `user_id` и `title` чата нельзя — на другой форме реестра этого просто нет. Проверка версии идёт через
-`composer show`, а Gate дополнительно проверяется в условиях CI (gotcha 11): `composer.lock` не коммитится, поэтому CI
-ставит пакеты без него. Если форма реестра у адаптера поменяется — план перевода, а не молчаливая правка кода. При
-обновлении хоста, который переходит на форму 1.2, порядок обязателен: `php artisan migrate`, затем
-`php artisan max:upgrade` — без второго шага `max_chat_users` останется пустым, и плагин не найдёт получателей.
+Всё общение с реестром идёт через `Support\ChatRegistry`: `userRelation()`, `withUsers()`, `whereUserLike()`, `user()`,
+`userId()`, `displayName()`, `chatType()`. Вне адаптера имена связей (`chatUsers`, `maxUsers`) и поле `title` не
+используются. Gate дополнительно проверяется в условиях CI (gotcha 11): `composer.lock` не коммитится, поэтому CI ставит
+пакеты без него. При обновлении с плагина 1.x сначала обновите `laravel-max-client` до v2 и выполните его миграции: без
+переноса `max_chat_users` плагин не найдёт получателей.
 
 ### Регрессии не чиним в стороннем проекте
 
@@ -84,7 +79,7 @@ Constraint `geekcodev/laravel-max-client: ^1.2.0` и `geekcodev/max-php-client: 
 - **Соответствие формулировки запроса и ответа** (не додумывай за пользователя):
 
   | Запрос пользователя | Что делаешь                                                                                |
-        |--------------------|--------------------------------------------------------------------------------------------|
+                            |--------------------|--------------------------------------------------------------------------------------------|
   | «краткий текст коммита», «напиши коммит-сообщение», «subject» | Одна строка — head, без body, по Conventional Commits, по всем изменениям ветки. Коммит не создаёшь |
   | «текст коммита» без уточнений | То же самое: краткий head без body                                                               |
   | «полный текст коммита», «с body» | Head + body с переносами по 100 символов                                                        |
@@ -118,8 +113,8 @@ Constraint `geekcodev/laravel-max-client: ^1.2.0` и `geekcodev/max-php-client: 
 
 ## 3. Правила для ИИ-агентов
 
-1. В начале работы прочитай `AGENTS.md`, `README.md` и активный план `.agents/plans/PLAN-filament-max-broadcasts.md`
-   целиком. Примеры документированного workflow — соседние пакеты: `filament-max-chat`
+1. В начале работы прочитай `AGENTS.md`, `README.md` и активный план из `.agents/plans/` (если он есть) целиком. Примеры
+   документированного workflow — соседние пакеты: `filament-max-chat`
    (`/home/user/web/filament-max-chat/`) и `laravel-max-client` (`/home/user/web/laravel-max-client/`); источник истины
    по API MAX — ядро `../max-php-client/docs/api-reference.md` (раздел 9).
 2. **Не коммить и не пуши без явного запроса пользователя.**
@@ -145,13 +140,15 @@ Constraint `geekcodev/laravel-max-client: ^1.2.0` и `geekcodev/max-php-client: 
 9. Текст в Markdown-файлах (AGENTS.md, README.md, release-notes, планы, журнал) пиши как человек: связный текст, абзацы,
    а не сплошные списки из буллетов. Списки — только когда действительно перечисляешь однородные пункты (Gate, gotchas,
    чек-лист).
-10. `.env.example` — единственный эталон имён переменных плагина; при добавлении новой `FILAMENT_MAX_BROADCASTS_*`
-    переменной синхронизируй его и `config/filament-max-broadcasts.php`.
+10. `.env.example` — единственный эталон имён переменных плагина; при добавлении новой переменной
+    (`MAX_PERMISSION_BROADCASTS_*`, `MAX_BOT_USERNAME`, `MAX_BROADCASTS_*`) синхронизируй его и
+    `config/filament-max-broadcasts.php`. Схема прав повторяет `laravel-max-client`
+    (`MAX_PERMISSION_<RESOURCE>_<ABILITY>`), `MAX_BOT_USERNAME` — общий ключ приложения для диплинков.
 11. Любой ключ перевода, который ты добавил в код, обязан существовать и в `lang/ru`, и в `lang/en` — иначе UI покажет
     сырые ключи, а тесты этого не поймают.
 12. По завершении каждой сессии заноси итог по формату из 4.1: строка в `.agents/journals/JOURNAL.md` + файл в
-    `.agents/journals/sessions/`, отмечай выполненные пункты в `.agents/plans/PLAN-filament-max-broadcasts.md`. Каталог
-    `.agents/` **коммитится** — прогресс должен быть виден после `git clone`.
+    `.agents/journals/sessions/`, отмечай выполненные пункты в активном плане (если он есть). Каталог `.agents/`
+    **коммитится** — прогресс должен быть виден после `git clone`.
 13. Перед правкой проверь чужие ловушки из раздела 10, а не открывай их заново.
 14. Если задача касается **Tailwind CSS** или **Livewire**, обращайся к локальным скиллам в
     `.agents/skills/tailwindcss-development/SKILL.md` и `.agents/skills/livewire-development/SKILL.md` соответственно —
@@ -187,10 +184,9 @@ src/
   Enums/
     BroadcastStatus.php                scheduled|running|completed|cancelled|failed
     BroadcastRecipientStatus.php       pending|sent|failed
-    BroadcastConsentAction.php         opt_in|opt_out (ответы на запрос согласия)
+    BroadcastConsentAction.php         pending|opt_in|opt_out (запрос отправлен / ответы на запрос согласия)
     BroadcastTypes/
       News.php, Promo.php              типы рассылок — backed-enum'ы, реализующие BroadcastTypeContract
-      ConsentPoll.php                  тип-источник callback-кнопок согласия (для SendConsentRequestsJob)
   Contracts/BroadcastTypeContract.php  контракт типа рассылки (label/buttonRows/badgeColor)
   Events/BroadcastCompleted.php        событие завершения рассылки
   Models/
@@ -198,27 +194,36 @@ src/
     BroadcastRecipient.php             max_broadcast_recipients (broadcast(), maxChat())
     BroadcastAttachment.php            max_broadcast_attachments (broadcast(), uploadType)
     BroadcastSegment.php               max_broadcast_segments — именованные группы чатов (chat_ids JSON, chat_count)
-    BroadcastConsent.php               max_broadcast_consents — факт opt_in/opt_out по паре (segment_id, chat_id)
+    BroadcastConsent.php               max_broadcast_consents — факт pending/opt_in/opt_out по паре (segment_id, chat_id)
   Jobs/
     SendBroadcastJob.php               очередь рассылки: лок, батчи, ретраи, отмена, счётчики
     SendConsentRequestsJob.php         очередь запроса согласия: лок, пере-резолв кандидатов, батчи
-  Listeners/HandleConsentCallback.php  приём callback-ответов согласия (MaxUpdateReceived) + ответ sendAnswer
+  Listeners/HandleConsentCallback.php  приём callback-ответов согласия (MaxUpdateReceived) + ответ answerCallback
   Services/
-    BroadcastService.php               create(): резолв получателей (chatIds → сегменты, только диалоги) + dispatch
+    BroadcastService.php               create(): резолв получателей (сегменты → opt_in-диалоги,
+                                      chatIds → группы/каналы) + dispatch
     BroadcastTextSanitizer.php         санитизация HTML под whitelist тегов MAX + toMaxHtml()
-    BroadcastRecipientsResolver.php    источник MaxChat (активные чаты, дедуп по chat_id) — расширяемый
+    BroadcastRecipientsResolver.php    источник MaxChat (активные чаты, дедуп по chat_id, resolveForChatIds по id) —
+                                      расширяемый
     BroadcastSender.php                отправка в MAX: текст/медиавложения/кнопки-диплинки (uploadMedia + sendMessage)
-    ConsentService.php                 единая точка согласий: optIn/optOut/answeredChatIds, сегмент «Новости и акции»
+    ConsentService.php                 единая точка согласий: optIn/optOut/answeredChatIds по сегментам
     ConsentRequestService.php          кандидаты запроса согласия по сегменту (активные диалоги без ответа) + dispatch джобы
     BroadcastSegmentRecipients.php     получатели сегмента: только активные диалоги, счётчики для селекта и предупреждения
   Support/
     BroadcastTypes.php                 реестр типов из конфига (instance/contains/options/label/badgeColor)
     BroadcastTypeDefaults.php          трейт дефолтного поведения типов (lang-подпись, кнопки из per_type)
-    ChatSelectionField.php             мультивыбор чатов: серверный поиск (лимит 50), «Выбрать всех», dialogsOnly для сегментов
+    ConsentButtons.php                 кнопки запроса согласия: payload consent:<segmentId>:<action>, тексты из конфига
+    ChatSelectionField.php             мультивыбор чатов: серверный поиск (лимит 50), области dialogsOnly /
+                                      nonDialogsOnly, подписи и бейджи
     BroadcastSegmentOptions.php        варианты селекта сегментов: только с получателями, бейдж числа получателей
     DialogsOnlyRule.php                серверная проверка: в сегмент только диалоги
-    ChatRegistry.php                   единственный адаптер к реестру чатов: форма 1.1.x против 1.2 (связи, user_id,
-                                      title, displayName)
+    ChatRegistry.php                   единственный адаптер к реестру чатов 1.2 (связи chatUsers/maxUsers, title,
+                                      displayName)
+    AttachmentStorage.php             диск вложений и ссылки на них: публичный URL или временная подписанная ссылка
+    AttachmentFile.php                локальный файл для uploadMedia: путь с локального диска или временная копия
+                                      из объектного хранилища с очисткой после отправки
+    SegmentConsentRule.php            серверная проверка: у выбранных сегментов есть согласившиеся получатели
+    QueueLockTtl.php                  TTL лока очереди: max(queue.lock_ttl_seconds, queue.timeout) + 60
   Resources/
     BroadcastResource.php              Filament-ресурс «Рассылки»
     BroadcastSegmentResource.php       Filament-ресурс «Сегменты» (список/создание/просмотр/редактирование)
@@ -226,18 +231,20 @@ src/
     Schemas/{BroadcastForm,BroadcastSegmentForm,BroadcastSegmentInfolist}.php
     Tables/{BroadcastsTable,BroadcastSegmentsTable,BroadcastConsentsTable}.php
     Pages/{CreateBroadcast,ListBroadcasts,ViewBroadcast,ListBroadcastSegments,CreateBroadcastSegment,EditBroadcastSegment,
-           ViewBroadcastSegment,ListBroadcastConsents}.php
-    RelationManagers/{BroadcastRecipientsRelationManager,BroadcastConsentsRelationManager}.php
+           ViewBroadcastSegment,ListBroadcastConsents,ManageBroadcastSegmentRecipients,ListBroadcastSegmentConsents}.php
+    RelationManagers/BroadcastRecipientsRelationManager.php
     Actions/RequestConsentAction.php   действие «Запросить согласие» для страницы сегмента и таблицы сегментов
 tests/                                PHPUnit + Orchestra Testbench
   Fixtures/                            AdminPanelProvider, TestUser, OffersType, OffersSegment, миграция users, Gate
                                       broadcasts.*; Chats/RawChat/RawUser — чаты и пользователи реестра, одинаковые
-                                      для обеих форм (gotcha 1); Queue::fake() и порядок provider'ов — в TestCase
+                                      формы 1.2; RemoteDisk — двойник объектного хранилища;
+                                      Queue::fake() и порядок provider'ов — в TestCase
   Support/                             MockHttpClient — подмена транспорта PSR-18 для ApiClient
   Unit/                                enums, models, sanitizer, resolver, types, sender, service, job, consent, plugin,
-                                      адаптер реестра чатов, метаданные ресурса согласий
+                                      адаптер реестра чатов, правила валидации (диалоги/согласия), биндинги сервисов,
+                                      метаданные ресурса согласий
   Feature/                             BroadcastResource + BroadcastSegmentResource + BroadcastConsentResource +
-                                      relation manager получателей
+                                      страницы получателей и согласий сегмента, relation manager получателей
 scripts/check-coverage.php            проверка порога покрытия по build/coverage.xml (дефолт 95% —
                                       тот же, что в composer.json; аргумент переопределяет)
 .github/workflows/ci.yml              один job quality: lint → phpstan → phpunit + coverage gate → audit
@@ -254,12 +261,13 @@ phpstan-baseline.neon                 только test-only записи для
                                       database, scripts)
 .gitattributes                        export-ignore для .agents/, tests/, .github/, dev-конфигов, Dockerfile,
                                       docker/ и docker-compose.yml: чистый dist для Packagist
-.env.example                          эталон имён переменных (FILAMENT_MAX_BROADCASTS_*)
+.env.example                          эталон имён переменных (MAX_PERMISSION_BROADCASTS_*, MAX_BOT_USERNAME, MAX_BROADCASTS_*)
 ```
 
-`resources/views/`, Livewire-компонентов и real-time (Echo/Reverb) на этом этапе **нет** — рассылки целиком на
-Filament-компонентах. `composer.lock`, `.phpunit.cache/`, `.phpstan-cache/`, `vendor/`, `build/` — в `.gitignore`;
-рабочая память `.agents/` в git, но исключена из архива пакета через `.gitattributes`.
+`resources/views/pages/` содержит Blade-обёртки вкладок «Получатели» и «Согласия» сегмента; Livewire-компонентов и
+real-time (Echo/Reverb) по-прежнему нет — интерфейс целиком на Filament-компонентах. `composer.lock`, `.phpunit.cache/`,
+`.phpstan-cache/`, `vendor/`, `build/` — в `.gitignore`; рабочая память `.agents/` в git, но исключена из архива пакета
+через `.gitattributes`.
 
 ### 4.1. Прогресс, планы и release-notes
 
@@ -273,16 +281,16 @@ Filament-компонентах. `composer.lock`, `.phpunit.cache/`, `.phpstan-c
 ```
 .agents/
   skills/                             локальные скиллы: tailwindcss-development/, livewire-development/
-  plans/                              многошаговые планы
+  plans/                              активные многошаговые планы (завершённые удаляются)
   release/                            release-notes версий
   journals/
     JOURNAL.md                        таблица сессий, новые сверху
     sessions/                         подробности сессий
 ```
 
-- `plans/PLAN-filament-max-broadcasts.md` — активный план проекта: задачи, которые переживают одну сессию; шаги
-  отмечаются в нём, дублировать в другие файлы не надо. Отдельные задачи оформляются как
-  `plans/YYYY-MM-DD-<слаг>.md`.
+- `plans/YYYY-MM-DD-<слаг>.md` — активный план: задачи, которые переживают одну сессию; шаги отмечаются в нём,
+  дублировать в другие файлы не надо. Когда все пункты закрыты, итоги переносятся в журнал и release notes, а файл плана
+  удаляется: историю хранят журнал, release notes и git, а не завершённые планы.
 - `release/RELEASE_NOTES_vX.Y.Z.md` — release-notes версий, по одной на версию, в своём формате; файлы не удаляются,
   история остаётся в git.
 - `journals/JOURNAL.md` — таблица сессий, новые сверху, колонки `Дата`, `Файл`, `Теги`, `Описание`; в описании — что
@@ -296,14 +304,14 @@ Filament-компонентах. `composer.lock`, `.phpunit.cache/`, `.phpstan-c
 
 ### Что куда писать
 
-| Вопрос                                   | Файл                                                                        |
-|------------------------------------------|-----------------------------------------------------------------------------|
-| «Как устроен проект и что нельзя делать» | `AGENTS.md` — контракты, соглашения, Gate, gotchas, чек-лист                |
-| «Что делаем сейчас и в каком порядке»    | `.agents/plans/PLAN-filament-max-broadcasts.md` — шаги, критерии готовности |
-| «Что произошло в конкретной сессии»      | `.agents/journals/sessions/*.md` + строка в `JOURNAL.md`                    |
-| «Что вошло в релиз X.Y.Z»                | `.agents/release/RELEASE_NOTES_vX.Y.Z.md`                                   |
-| «Как пользоваться такими технологиями»   | `.agents/skills/*/SKILL.md`                                                 |
-| «Как этим пользоваться» (для хоста)      | `README.md` — установка, конфигурация, интеграция, история                  |
+| Вопрос                                   | Файл                                                         |
+|------------------------------------------|--------------------------------------------------------------|
+| «Как устроен проект и что нельзя делать» | `AGENTS.md` — контракты, соглашения, Gate, gotchas, чек-лист |
+| «Что делаем сейчас и в каком порядке»    | активный план в `.agents/plans/` — шаги, критерии готовности |
+| «Что произошло в конкретной сессии»      | `.agents/journals/sessions/*.md` + строка в `JOURNAL.md`     |
+| «Что вошло в релиз X.Y.Z»                | `.agents/release/RELEASE_NOTES_vX.Y.Z.md`                    |
+| «Как пользоваться такими технологиями»   | `.agents/skills/*/SKILL.md`                                  |
+| «Как этим пользоваться» (для хоста)      | `README.md` — установка, конфигурация, интеграция, история   |
 
 Правило: постоянное решение — в `AGENTS.md`; решение по конкретной задаче — в плане; факт о сессии — в журнале. Текст
 правил в плане и журнале не дублируем, даём ссылку на раздел `AGENTS.md`.
@@ -316,42 +324,70 @@ Filament-компонентах. `composer.lock`, `.phpunit.cache/`, `.phpstan-c
 - **Подключение**: `->plugin(FilamentMaxBroadcastsPlugin::make())` в PanelProvider. Регистрирует ресурсы
   `BroadcastResource`, `BroadcastSegmentResource` и `BroadcastConsentResource` (переопределяются через `->resource()` /
   `->segmentResource()` / `->consentResource()`). Права (строки, `$user->can(...)`, совместимо с
-  spatie/laravel-permission и Gate): `permissions.view` (`broadcasts.view`), `permissions.create` (`broadcasts.create`),
-  `permissions.manage` (`broadcasts.manage`).
-- **Источник чатов**: `BroadcastRecipientsResolver` — источник списка `MaxChat` для рассылки (активные чаты, дедуп по
-  `chat_id`, сортировка по `last_activity_at`). Модель чата — `config('filament-max-broadcasts.chats_model')`
-  (по умолчанию пакетный `GeekCo\LaravelMaxClient\Models\MaxChat`), статус — `MaxChatStatus::Active`. Дедуп обязателен и
-  на форме реестра 1.1.x, где строка на пару (пользователь, чат), и на 1.2.0, где строка на чат.
-- **Получатели**: `BroadcastService::create(..., ?array $chatIds = null, array $segments = [])`. Приоритет резолва:
-  явные `chatIds` (любые типы чатов) → объединение `chat_ids` выбранных сегментов, только чаты типа `dialog` → иначе
-  `InvalidArgumentException`: рассылка без сегментов и без получателей не создаётся (пустой выбор больше не означает
-  «всем активным»). Снимок фактических получателей хранится в `recipient_chat_ids` рассылки (nullable) — источник истины
-  для повтора; выбранные сегменты привязываются через pivot `max_broadcast_segment` (история выбора). В UI — мультивыбор
-  сегментов (`Select multiple`) + ручная корректировка поиском активных чатов (серверно, только найденные); «Повторить»
-  передаёт и сегменты, и снимок.
+  spatie/laravel-permission и Gate): `permissions.view` (`max_broadcasts.view`), `permissions.create`
+  (`max_broadcasts.create`),
+  `permissions.manage` (`max_broadcasts.manage`). У `BroadcastSegmentResource` переопределён
+  `getDeleteAuthorizationResponse()`: он делегирует `canDelete()`, потому что базовый `get_authorization_response()`
+  смотрит только политику модели, а политик в пакете нет (gotcha 24).
+- **Кнопки страниц**: действия уровня страницы (header/form actions) оформляются `->outlined()` и с иконкой. На
+  страницах создания рассылки и сегмента `canCreateAnother()` возвращает `false`, поэтому кнопки «Создать и создать ещё»
+  нет; создание идёт через «Создать». Действия таблиц следуют тому же стилю (outlined и иконка): действия выбора записей
+  («Выбрать всех», «Снять выделение») объявляются в `->toolbarActions()` и попадают в строку поиска слева, а сохранение
+  состава — остаётся в `->headerActions()`. Текстовая ссылка внутри infolist-записи — не кнопка: переход оформляется
+  `Action` в секции или `TextEntry` с `->url()`, иначе он визуально неотличим от текста.
+- **Редиректы**: после «Создать» на страницах создания рассылки и сегмента и после «Сохранить» при правке сегмента
+  страница возвращает на список (`getRedirectUrl()` → `index`), а не на просмотр и не остаётся на форме.
+- **Источник чатов**: `BroadcastRecipientsResolver` — источник списка `MaxChat` для рассылки и опроса согласия (активные
+  чаты, дедуп по `chat_id`, сортировка по `last_activity_at`). Точечная выборка идёт через
+  `resolveForChatIds(list<int>)`: штатный резолвер читает только запрошенные id и подгружает пользователей
+  (`ChatRegistry::withUsers`), а подкласс с переопределённым `resolve()` по умолчанию получает безопасный путь через
+  свой
+  `resolve()` — правила хоста не теряются. Если подкласс не меняет правила, ему достаточно оставить
+  `supportsScopedResolution()` как есть. Модель чата — `config('filament-max-broadcasts.chats_model')` (по умолчанию
+  пакетный `GeekCo\LaravelMaxClient\Models\MaxChat`), статус — `MaxChatStatus::Active`. Дедуп по `chat_id` обязателен:
+  в `max_chat_users` у чата может быть несколько участников.
+- **Получатели**: `BroadcastService::create(..., ?array $chatIds = null, array $segments = [])`. Диалоги приходят только
+  из сегментов (согласившиеся, `opt_in`), вручную выбираются только группы и каналы; явный диалог в `chatIds`
+  игнорируется. Резолв: 1) с сегментами — согласившиеся диалоги ∪ выбранные вручную группы/каналы; 2) без сегментов —
+  только группы/каналы из `chatIds`; 3) пустой резолв — `InvalidArgumentException` (рассылка без получателей не
+  создаётся). Снимок фактических получателей (уже отфильтрованных и активных) хранится в `recipient_chat_ids`
+  (nullable) — источник истины для повтора; выбранные сегменты привязываются через pivot `max_broadcast_segment`
+  (история выбора). В UI — мультивыбор сегментов (`Select multiple`, только сегменты с согласившимися) и селект
+  получателей только по группам/каналам без «Выбрать всех». Повтор делает `BroadcastService::repeat()`: снимок
+  передаётся в тот же резолв, поэтому диалоги фильтруются по свежим
+  `opt_in`, а группы и каналы сохраняются; без снимка — резолв по сегментам; пустой результат —
+  `InvalidArgumentException`
+  (UI показывает «некого повторять»).
 - **Создание рассылки**: `BroadcastService::create(text, scheduledAt, creator, attachments, type, chatIds, segments)` —
   резолвит получателей, сохраняет `Broadcast` + вложения (`attachments`, `list<array{upload_type, path}>`) +
   `BroadcastRecipient`s, `segments()->sync()`, `dispatch()` через `SendBroadcastJob` (с `delay()` при будущем
   расписании). Текст санитизируется `BroadcastTextSanitizer->sanitize()` при создании; невалидное вложение
   (несуществующий
-  `UploadType`/пустой path) — `InvalidArgumentException 'Invalid broadcast attachment #%d.'`.
-- **Отправка**: `SendBroadcastJob` — `Cache::lock("broadcast:{id}")`, статус `running`, батчи по `queue.batch_size`
-  (25) с проверкой отмены и обновлением счётчиков, `sendTo()` через `BroadcastSender->send(new Recipient(chatId,
-  userId), toMaxHtml(text), $media, type)`, где `$media` — `list<array{upload_type, path}>` из вложений рассылки; по
-  завершении — `completed` + `BroadcastCompleted`. `failed()` → `failed`. Лок защищает от повторной отправки только при
-  общем для всех воркеров хранилище кэша (redis/database/memcached): на `file`/`array` два процесса возьмут одну
-  рассылку — gotcha 15.
+  `UploadType`/пустой path) — `InvalidArgumentException 'Invalid broadcast attachment #%d.'`. Форма рассылки объявляет
+  `->columns(1)` на корневой схеме: секции идут на всю ширину, а плотность задаётся внутри секций (`stats` —
+  `->columns(4)`); иначе страница ресурса навязывает корневой схеме две колонки.
+- **Отправка**: `SendBroadcastJob` — `Cache::lock("broadcast:{id}", QueueLockTtl::seconds())`, статус `running`, батчи
+  по
+  `queue.batch_size` (25) с проверкой отмены и обновлением счётчиков, `sendTo()` через `BroadcastSender->send(new
+  Recipient(chatId, userId), toMaxHtml(text), $media, type)`, где `$media` — `list<array{upload_type, path}>` из
+  вложений рассылки; по завершении — `completed` + `BroadcastCompleted`. `failed()` → `failed`. TTL лока —
+  `max(queue.lock_ttl_seconds, queue.timeout) + 60` (`Support\QueueLockTtl`), иначе долгая отправка теряет лок раньше,
+  чем закончит; тот же TTL у опроса согласия. Лок защищает от повторной отправки только при общем для всех воркеров
+  хранилище кэша (redis/database/memcached): на `file`/`array` два процесса возьмут одну рассылку — gotcha 15.
 - **BroadcastSender** — единственная точка отправки рассылки: загрузка медиавложений (картинки/видео/файлы через
-  `uploadMedia`, `UploadType→AttachmentType` match, чтение по локальному пути `Storage::disk(...)->path(...)`, публичный
-  URL хранилища не нужен), кнопки-диплинки (InlineKeyboard) от `BroadcastTypeContract::buttonRows()`, сообщение с
-  `format=html`. Прямые вызовы ApiClient из Filament/Page запрещены.
+  `uploadMedia`, DTO вложения по `UploadType`), кнопки-диплинки (`Keyboard`/`LinkButton`/`CallbackButton`) от
+  `BroadcastTypeContract::buttonRows()`, сообщение с `format=html`. Ядро принимает только локальный путь, поэтому файл
+  готовит `Support\AttachmentFile`: локальный диск — путь напрямую, объектное хранилище — временная копия, одна на
+  рассылку (кэш в отправителе), она удаляется после завершения рассылки. Прямые вызовы ApiClient из Filament/Page
+  запрещены. Диск вложений и ссылки на них для админки — `Support\AttachmentStorage` (приватный диск → временная
+  подписанная ссылка), дефолт — `local` (gotcha 29).
 - **Санатизация**: `BroadcastTextSanitizer` (whitelist тегов MAX, drop script/style, unwrap неизвестных) + `toMaxHtml()`
   — разворачивание `<p>`/`<div>`/`<br>` в `\n`, иначе MAX не рендерит абзацы. Применяется и при создании, и перед
   отправкой.
 - **Типы и кнопки**: типы рассылок — это поведение. Реестр `types` из конфига отображает токен на класс, реализующий
   `BroadcastTypeContract` (default: `Enums\BroadcastTypes\{News,Promo}`, каждый — backed-enum с case value === токен).
   Простейший тип строится на трейте `BroadcastTypeDefaults`: подпись из lang `broadcasts.type.<token>`, кнопки из
-  `bot_username` + `buttons.per_type.<token>` (`list<InlineKeyboardButtonRow>`, URL
+  `bot_username` + `buttons.per_type.<token>` (`list<list<Button>>`, URL
   `https://max.ru/<bot>?startapp=<param>`), цвет badge `gray`. Хост добавляет тип = свой enum (трейт + нужные
   переопределения `label()/buttonRows()/badgeColor()`) + строка в `types`. Кнопок нет при пустом `bot_username`, пустом
   списке или переопределённом `buttonRows()`. `BroadcastTypes` — реестр: `instance()/contains()/options()/label()/
@@ -360,21 +396,33 @@ Filament-компонентах. `composer.lock`, `.phpunit.cache/`, `.phpstan-c
   `image.max_kb`.
 - **Согласие (opt-in)**: действие `Resources\Actions\RequestConsentAction` «Запросить согласие» на странице сегмента и в
   строке таблицы сегментов (под `permissions.create`; на списке рассылок его нет) → `ConsentRequestService::sendRequest(
-  BroadcastSegment)`: кандидаты — активные диалоги реестра без записи в `max_broadcast_consents` для этого сегмента,
-  `SendConsentRequestsJob($segmentId)` (лок `consent:send-request:{segmentId}`, батчи) шлёт сообщение «Вы согласны
-  получать рассылку «название»?» (`consent.request_message`, `:segment`) с кнопками «Да»/«Нет»
-  (`ConsentPoll::buttonRowsFor($segmentId)`, payload `consent:<segmentId>:<action>`; `BroadcastSender::send()` принимает
-  кнопки явным параметром). Payload без сегмента (`consent:<action>`) не принимается: регулярное выражение требует
-  сегмент, malformed и чужие callback'и игнорируются. Ответы ловит
+  BroadcastSegment)`: кандидаты — активные диалоги из `chat_ids` самого сегмента без записи в `max_broadcast_consents`
+  для этого сегмента, `SendConsentRequestsJob($segmentId)` (лок `consent:send-request:{segmentId}`, батчи) шлёт
+  сообщение «Вы согласны получать рассылку «название»?» (`consent.request_message`, `:segment`) с кнопками «Да»/«Нет»
+  (`Support\ConsentButtons::forSegment($segmentId)`, payload `consent:<segmentId>:<action>`; `BroadcastSender::send()`
+  принимает кнопки явным параметром). Payload без сегмента (`consent:<action>`) не принимается: регулярное выражение
+  требует сегмент, malformed и чужие callback'и игнорируются. Ответы ловит
   `HandleConsentCallback` (событие `MaxUpdateReceived`, регистрация в `FilamentMaxBroadcastsServiceProvider::boot()`),
-  через `ConsentService::optIn/optOut(chatId, userId, segmentId)` делает upsert факта и добавляет/убирает `chat_id` в
-  сегменте из payload (неизвестный сегмент — callback игнорируется), после чего удаляет исходное сообщение с опросом
-  (`ApiClient::deleteMessage`; при ошибке — fallback `editMessage` без кнопок), отвечает на нажатие
-  `ApiClient::sendAnswer` и подтверждает выбор в чат. Одна актуальная запись на
-  пару `(segment_id, chat_id)`; `answeredChatIds(segmentId)` — дедуп ответивших в этом сегменте (их повторно не
-  опрашивают, проигнорировавших — да). Журнал ответов — `BroadcastConsentResource` (read-only: `canCreate()`/
-  `canEdit()` → `false`) с фильтрами по сегменту (включая `none` — записи удалённых сегментов) и действию. При удалении
-  сегмента согласия остаются с `segment_id = null` (FK `nullOnDelete`, колонка nullable — gotcha 28).
+  через `ConsentService::optIn/optOut(chatId, userId, segmentId)` делает upsert факта и **не меняет состав сегмента**:
+  сегмент — вручную заданная аудитория, согласие живёт отдельно. Поэтому рассылка по сегменту берёт только `opt_in`
+  (`optedInChatIds`), поле получателей — только группы и каналы, а форма проверяет `Support\SegmentConsentRule`; пустой
+  резолв отклоняется `InvalidArgumentException`. После ответа удаляется исходное сообщение с опросом
+  (`ApiClient::deleteMessage`; при ошибке — fallback `editMessage` без кнопок), затем
+  `ApiClient::answerCallback` и подтверждение в чат. Одна актуальная запись на пару `(segment_id, chat_id)`;
+  `answeredChatIds(segmentId)` — дедуп ответивших в этом сегменте (их повторно не опрашивают, проигнорировавших — да).
+  Каждая успешная отправка запроса фиксируется записью `pending` (`ConsentService::requestSent`/`requestSentForSegment`,
+  `source = request`): джоба передаёт уже полученный сегмент и не перечитывает его на каждого получателя. Журнал
+  показывает, кому запрос ушёл и кто ещё не ответил, ответ перезаписывает запись, а `pending` ответом не считается.
+  Журнал согласий — `BroadcastConsentResource` (read-only: `canCreate()`/
+  `canEdit()` → `false`) с фильтрами по сегменту (включая `none` — записи удалённых сегментов) и действию; на странице
+  сегмента тот же журнал открывается вкладкой «Согласия» (`ListBroadcastSegmentConsents`). При удалении сегмента
+  согласия остаются с `segment_id = null` (FK `nullOnDelete`, колонка nullable — gotcha 28).
+- **Получатели сегмента**: форма сегмента содержит только блок «Основное» (название, описание). Получатели управляются
+  на вкладке «Получатели» (`ManageBroadcastSegmentRecipients`): таблица активных диалогов с поиском, сортировкой и
+  фильтром «Только выбранные», чекбоксы, «Выбрать всех» по всем активным диалогам и счётчик выбранных. Сохранение пишет
+  `chat_ids` и сохраняет старые не-диалоговые/неактивные ID, чтобы не терять данные сегмента. Форма и infolist сегмента
+  объявляют `->columns(1)`, поэтому блоки на вкладках «Основное» и «Просмотр» занимают всю ширину: без этого страница
+  ресурса навязывает корневой схеме две колонки и секция сжимается до половины.
 - **Таблицы**: `max_broadcasts`, `max_broadcast_recipients`, `max_broadcast_attachments`, `max_broadcast_segments`,
   `max_broadcast_consents` и pivot `max_broadcast_segment` (структура — наследие `broadcasts`/`broadcast_recipients` из
   хоста, но с префиксом `max_` во избежание конфликтов; вложения — отдельная таблица по несколько на рассылку). FK
@@ -425,9 +473,8 @@ Xdebug включён и отчёт покрытия строится без д�
 3. **Статика**: `composer analyse` (PHPStan level max) → 0 ошибок.
 4. **Тесты**: `composer test` (PHPUnit) → зелёные (failOnRisky/failOnWarning).
 5. **Покрытие**: `composer coverage` → ≥порога строк (`scripts/check-coverage.php`). **Порог 95%** — измеренный факт на
-   текущем состоянии кода 97.84% строк (91.35% методов) на форме реестра 1.2 и 96.28% строк (89.73% методов) на legacy
-   1.1.x, то есть запас ~1.3 процентного пункта на худшей форме. Это храповик: при добавлении тестов порог можно
-   поднимать, понижать его вниз, чтобы «покрасить» Gate, нельзя (gotcha 18).
+   текущем состоянии кода 99.20% строк (97.75% методов), то есть запас ~4.2 процентного пункта. Это храповик: при
+   добавлении тестов порог можно поднимать, понижать его вниз, чтобы «покрасить» Gate, нельзя (gotcha 18).
 6. **Audit**: `composer security-audit` → 0 уязвимостей.
 7. **Проверка в условиях CI**: тот же Gate целиком в чистой копии дерева без `vendor/` и `composer.lock`, со свежей
    установкой по `composer.json` (правило 15, gotcha 11). Локальный прогон не заменяет этот шаг: локальные
@@ -441,13 +488,16 @@ Xdebug включён и отчёт покрытия строится без д�
 
 - **A01** — доступ к ресурсу и действиям только по правам (`permissions.*`); fail-closed, без прав — недоступно;
   `canCreate()`/`canEdit()` у read-only ресурса возвращают `false` (в Filament это не поведение по умолчанию).
-- **A02** — секреты только в env; не логировать токены. Вложения рассылки по умолчанию кладутся на диск `public`
-  (`image.disk`), то есть доступны по HTTP; отправка в MAX идёт по локальному пути, поэтому публичность диска не нужна —
-  переход на приватный диск и его последствия решаются отдельной задачей (пункт 3 плана), молча не меняй дефолт.
+- **A02** — секреты только в env; не логировать токены. Вложения рассылки по умолчанию лежат на приватном диске
+  `local` (`image.disk`): в MAX они уходят через `uploadMedia`, а в админке показываются по временным подписанным
+  ссылкам (`Support\AttachmentStorage`). Диск может быть и локальным публичным, и объектным хранилищем — ссылки в
+  админке всё равно подписанные, а временная копия для загрузки удаляется после отправки (`Support\AttachmentFile`).
+  Дефолт менять на публичный нельзя.
 - **A03** — текст рассылки санитизируется `BroadcastTextSanitizer` (whitelist, безопасные схемы href) до сохранения и до
   отправки; Blade/формы экранируются по умолчанию.
 - **A04** — получатели не контролируются пользователем из формы (ветка выбора чатов — серверная логика, в UI только
-  найденные сервером `chat_id`); лимиты вложений (`image.max_kb`, `image.accepted_mime_types`), лимит текста (4000).
+  найденные сервером `chat_id`); лимиты вложений (`image.max_kb`, `image.accepted_mime_types`,
+  `image.accepted_file_types`), лимит текста (4000).
 - **A05** — publishable-конфиг с безопасными дефолтами; секреты не в коде; `env()` читается только в конфиге.
 - **A06** — `composer security-audit` в Gate и CI; `composer.lock` не коммитится, поэтому дрейф версий проверяй честно
   (gotcha 11).
@@ -465,9 +515,9 @@ Xdebug включён и отчёт покрытия строится без д�
 - Сводка эндпоинтов, DTO и enums: `max-php-client/docs/api-reference.md` в соседнем репозитории — не дублируй её здесь,
   читай.
 - Отправка рассылки: `ApiClient::sendMessage` (`NewMessageBody`, `TextFormat::Html`), `uploadMedia` для медиавложений,
-  `InlineKeyboardButton`/`ButtonType::Link` для кнопок-диплинок, `sendAnswer` для ответа на callback, `deleteMessage` для
-  удаления сообщения с опросом и `editMessage` для
-  правки сообщения с кнопками. Сигнатуры брать из пакета `geekcodev/max-php-client`, не выдумывать.
+  `Keyboard`/`LinkButton`/`CallbackButton` для кнопок-диплинок, `answerCallback` для ответа на callback, `deleteMessage`
+  для удаления сообщения с опросом и `editMessage` для правки сообщения с кнопками. Сигнатуры брать из пакета
+  `geekcodev/max-php-client`, не выдумывать.
 - Реестр чатов/пользователей — из `geekcodev/laravel-max-client` (`MaxChat`, `MaxUser`, `MaxChatStatus`).
 - Факты, влияющие на плагин: аутентификация — заголовок `Authorization: <token>` **без** `Bearer`; все timestamp API —
   Unix в **миллисекундах**; `chat_id`/`user_id` — int64 и могут быть **отрицательными** (группы и каналы); `message_id`/
@@ -478,10 +528,9 @@ Xdebug включён и отчёт покрытия строится без д�
 
 ## 10. Частые ошибки (gotchas)
 
-1. **Всё общение с реестром — через `Support\ChatRegistry`.** Constraint `^1.2.0` в `composer.json` закрывает legacy, но
-   CI без `composer.lock` в любой момент может поставить другую форму реестра, поэтому вне адаптера нельзя обращаться к
-   `maxUser`, `user_id` и `title` чата: на 1.1.x этого нет, а на 1.2 ключ строки — `chat_id`, не `id`. Проверка
-   фактической версии: `composer show geekcodev/laravel-max-client` + §1 «Статус и версии».
+1. **Всё общение с реестром — через `Support\ChatRegistry`.** Форма реестра одна (1.2), но имена связей и способ
+   получить пользователя чата не должны расползаться по коду: вне адаптера не обращайся к `chatUsers`, `maxUsers` и
+   `title` напрямую. Проверка фактической версии: `composer show geekcodev/laravel-max-client` + §1 «Статус и версии».
 2. **Выполненные миграции нельзя править на месте, а переименовывать можно только с guard.** Правило §2 повторяет здесь
    gotcha намеренно: именно из-за сдвига имён (`000005 → 000006`, плюс забытая миграция про
    `recipient_chat_ids`) у хоста `php artisan migrate` падал на повторном `Schema::create`. Поэтому перевод в полосу
@@ -507,14 +556,14 @@ Xdebug включён и отчёт покрытия строится без д�
    `canCreate()`/`canEdit()` обязаны возвращать `false`, иначе в UI появятся лишние кнопки.
 10. **Кэш PHPStan врёт**: устаревший `.phpstan-cache` даёт ложные краши Larastan
     (`Undefined constant Larastan\Larastan\LARAVEL_VERSION`) — лечится `rm -rf .phpstan-cache`.
-11. **`composer.lock` не коммитится — локальный Gate скрывает дрейф.** Локально стоит
-    `geekcodev/laravel-max-client v1.1.1`, а CI (без lock) получает свежие версии: зелёное локально может быть красным в
-    CI. Проверка в условиях CI: скопировать дерево без `vendor/` и `composer.lock` в `.ci-sim/`, выполнить там
-    `composer install` и весь Gate — CI делает ровно то же. Каталог удаляется после проверки, в `.gitignore` не нужен.
-    Отдельно опасна подмена содержимого `vendor/` вручную (своим бэкапом, распакованным архивом, выбранной версией
-    пакета): `vendor/composer/installed.json` продолжает называть прежние версии, и зелёный Gate на таком наборе не
-    говорит ничего о том, что поставит CI. Такой прогон годится как проверка совместимости с конкретной версией
-    зависимости, но не закрывает Gate: закрывает только свежая установка по `composer.json` (правило 15, §7).
+11. **`composer.lock` не коммитится — локальный Gate скрывает дрейф.** Локально может стоять одна версия зависимости, а
+    CI (без lock) получает свежие версии: зелёное локально может быть красным в CI. Проверка в условиях CI: скопировать
+    дерево без `vendor/` и `composer.lock` в `.ci-sim/`, выполнить там `composer install` и весь Gate — CI делает ровно
+    то же. Каталог удаляется после проверки; на случай забытой копии он добавлен в `.gitignore`. Отдельно опасна подмена
+    содержимого `vendor/` вручную (своим бэкапом, распакованным архивом, выбранной версией пакета):
+    `vendor/composer/installed.json` продолжает называть прежние версии, и зелёный Gate на таком наборе не говорит
+    ничего о том, что поставит CI. Такой прогон годится как проверка совместимости с конкретной версией зависимости, но
+    не закрывает Gate: закрывает только свежая установка по `composer.json` (правило 15, §7).
 12. **Packagist из контейнера**: если `composer install` или `composer security-audit` зависает на сети (curl error 28,
     `Connection timed out`), помогает `COMPOSER_IPRESOLVE=4`
     (`docker compose run --rm -e COMPOSER_IPRESOLVE=4 app composer security-audit`); это временный флаг, в репозиторий
@@ -529,7 +578,9 @@ Xdebug включён и отчёт покрытия строится без д�
     `coverage: xdebug` и `XDEBUG_MODE=coverage`.
 15. **Лок джобы держится на кэше**: `Cache::lock("broadcast:{id}")` и `Cache::lock('consent:send-request')` координируют
     воркеры только на общем хранилище (redis/database/memcached). На `file`/`array` в продакшене рассылку отправят два
-    процесса параллельно, а счётчики разъедутся. Требование к хосту, а не к пакету, — но проверяй конфиг перед релизом.
+    процесса параллельно, а счётчики разъедутся. TTL лока считает `Support\QueueLockTtl`:
+    `max(queue.lock_ttl_seconds, queue.timeout) + 60`, то есть долгая отправка не теряет лок на середине, а при жёстком
+    падении воркера лок держится до этого TTL. Требование к хосту, а не к пакету, — но проверяй конфиг перед релизом.
 16. **Ассеты вендорной `MaxChat`**: у модели `laravel-max-client` нет `@property`, поэтому `status`, `chat_type`,
     `last_activity_at` читаются через `getAttribute()` с локальным `@var` (иначе PHPStan level max не проходит). Не
     «чини» это `@phpstan-ignore` в baseline — это маскировка production-ошибки.
@@ -537,23 +588,23 @@ Xdebug включён и отчёт покрытия строится без д�
     (`assertCanSeeTableRecords`, `assertActionVisible` и подобные); production-ошибки в baseline не добавлять. В
     `phpstan.neon` стоит `reportUnmatchedIgnoredErrors: false`: в CI Filament/Livewire/Larastan новее, часть хелперных
     ошибок там просто не возникает, и незакрытая запись иначе роняет анализ при зелёном коде.
-18. **Порог покрытия 95% — храповик, а не цель**: сейчас 97.84% строк (91.35% методов) на форме реестра 1.2 и 96.28%
-    строк (89.73% методов) на legacy 1.1.x, то есть запас ~1.3 процентного пункта на худшей форме. Понижать порог вниз,
-    чтобы «покрасить» Gate, нельзя. Непокрытыми остаются защитные ветки, которые без моков финальных классов
-    недостижимы: `BroadcastTextSanitizer` (HTMLDocument бросает исключение, пустой body, `unwrap` без родителя), а также
-    редкие ветки `BroadcastForm`, `SendConsentRequestsJob`, `BroadcastSegmentResource`,
-    `SendBroadcastJob`, `ViewBroadcast`, `BroadcastsTable`, `CreateBroadcast` и резолвера в service provider.
+18. **Порог покрытия 95% — храповик, а не цель**: сейчас 99.20% строк (97.75% методов), запас ~4.2 процентного пункта.
+    Понижать порог вниз, чтобы «покрасить» Gate, нельзя. Непокрытыми остаются только аварийные ветки файловых операций
+    `AttachmentFile` (сбой `fopen`/копирования, `chmod`, `unlink`), не-скалярная защита в
+    `ConsentService::optedInChatIdsBySegment` (в БД целочисленные колонки) и ветки `BroadcastTextSanitizer`
+    (HTMLDocument бросает исключение, пустой body; `Comment`-узлы парсер HTML5 отбрасывает до обработки). Guards
+    действий, пустые входы сервисов и служебные ветки job'ов покрыты, включая reflection-вызовы приватных методов,
+    недостижимых через UI.
 19. **Ловушка репозитория**: release-notes и планы больше не создаются в корне (`RELEASE-vX.Y.Z.md`, `PLAN-*.md`) и
     рабочая память больше не в `.ai/` — только в `.agents/` (gotcha по путям из §2 и 4.1).
 20. **PyYAML молча перезатирает дубликаты ключей**: `yaml.safe_load` на workflow с двумя `name:` в одном job вернёт
     корректный словарь и ошибку не покажет (GitHub Actions такую ошибку, наоборот, подсвечивает). При правке
     `.github/workflows/*.yml` проверяй строгим загрузчиком с поиском дубликатов или `actionlint`; в dev-контейнере
     `actionlint` и `yamllint` не установлены, поэтому проверка — глазами плюс строгий разбор.
-21. **Стабы форм реестра в тестах не наследуют `MaxChat`**: перекрытие `maxUser()` в подклассе конфликтует с дженериком
-    родителя в PHPStan level max (`method.childReturnType`, шаблон `TDeclaringModel` не ковариантен). Стабы форм
-    (`LegacyChat`, `PivotChat`, `PivotlessChat`) расширяют обычный `Model`; хостовые подклассы вроде
-    `ConfiguredChat` наследуют `MaxChat`, потому что этого требует контракт `chats_model`. Вне формы проверяй
-    `method_exists()`, а не `instanceof`, иначе статика считает проверку избыточной на одной из форм.
+21. **Стабы моделей в тестах.** Для чатов и пользователей без БД используй `RawChat`/`RawUser`: они форсят атрибуты
+    через `forceFill` и не зависят от `$fillable` модели ядра. Хостовый подкласс `ConfiguredChat` наследует `MaxChat`,
+    потому что этого требует контракт `chats_model`; перекрывать в нём связи реестра не нужно — адаптер работает через
+    объявленные связи ядра.
 22. **`.gitattributes`**: нужен паттерн `/.agents/**` — с завершающим слешем `git check-attr export-ignore` молча отдаёт
     `unspecified`.
 23. **Полоса миграций — это позиция пакета в общем порядке, а не отдельный диапазон.** Laravel сортирует миграции
@@ -570,9 +621,12 @@ Xdebug включён и отчёт покрытия строится без д�
     политику модели; политик в пакете нет, поэтому действие по умолчанию разрешено всем, кто вправе открыть страницу.
     Переопределённый `Resource::canCreate()` в этом пути не участвует: он остаётся серверной проверкой
     `CreateRecord::authorizeAccess()`. Поэтому каждому header-действию нужен явный `->authorize($permission)` — иначе
-    кнопку видит пользователь с одним `broadcasts.view`, а клик даёт 403. По той же причине кнопка «Создать» на
+    кнопку видит пользователь с одним `max_broadcasts.view`, а клик даёт 403. По той же причине кнопка «Создать» на
     `ListBroadcastSegments` объявлена в `getHeaderActions()` вручную: базовый `ListRecords` в v5 header-действий не
-    добавляет.
+    добавляет. Аналогично `Resource::canView()/canEdit()/canDelete()` — удобные методы, но `getView/Edit/Delete
+    AuthorizationResponse()` их не вызывают. Доступ к страницам идёт через `canAccess()` → эти методы, а авторизация
+    `DeleteAction` — через `getDeleteAuthorizationResponse()`; поэтому `BroadcastSegmentResource` переопределяет его и
+    делегирует `canDelete()`, иначе проверка прав удаления жила бы только в явных `->authorize()` на действиях.
 25. **Payload кнопок согласия несёт сегмент.** Опросы отправляются только с payload
     `consent:<segmentId>:<action>`. `HandleConsentCallback` принимает только такой формат, payload без сегмента
     игнорируется. После ответа бот удаляет сообщение с опросом (`deleteMessage`); при ошибке удаления кнопки убираются
@@ -580,12 +634,15 @@ Xdebug включён и отчёт покрытия строится без д�
 26. **Пустой выбор рассылки — ошибка, а не «всем чатам».** `BroadcastService::create()` бросает
     `InvalidArgumentException`, если нет ни `chatIds`, ни `segments`. Форма требует хотя бы одно поле через
     `requiredWithout`. Повтор рассылки без снимка получателей показывает уведомление и не создаёт новую рассылку.
-27. **Селект сегментов и сегменты с диалогами.** В селект сегментов рассылки попадают только сегменты с активными
-    диалогами (`Support\BroadcastSegmentOptions`, число в бейдже —
-    `Services\BroadcastSegmentRecipients::dialogCounts()`). Сегменту нельзя добавить не-диалог: проверка
+27. **Селект сегментов и сегменты с диалогами.** Пустой сегмент — поддерживаемое состояние (его можно создать заранее и
+    наполнить позже; поле получателей сегмента необязательное), поэтому отдельной проверки «не пусто» нет. В селект
+    сегментов рассылки попадают только сегменты с согласившимися диалогами (`Support\BroadcastSegmentOptions`, число в
+    бейдже —
+    `Services\BroadcastSegmentRecipients::consentedCounts()`). Сегменту нельзя добавить не-диалог: проверка
     `Support\DialogsOnlyRule` на сервере и `dialogsOnly: true` в
-    `ChatSelectionField` (варианты, поиск, подписи, «Выбрать всех»). Старые группы в сегментах не удаляются, но не
-    получают рассылку по сегменту и помечены предупреждением.
+    `ChatSelectionField` (варианты, поиск, подписи). В сегмент нельзя добавить не-диалог: форма сегмента больше не
+    содержит селект чатов, получатели выбираются на вкладке «Получатели» из активных диалогов; старые группы в
+    `chat_ids` сохраняются, но не получают рассылку по сегменту и помечены предупреждением.
 
 28. **`nullOnDelete()` требует nullable-колонку.** `foreignId('segment_id')->constrained(...)->nullOnDelete()` без
     `nullable()` не даёт удалить родителя: SQLite и MySQL отклоняют запись NULL (`NOT NULL constraint failed`), а на
@@ -593,6 +650,35 @@ Xdebug включён и отчёт покрытия строится без д�
     поэтому `max_broadcast_consents.segment_id` объявлен nullable в create-миграции `0000_03_000005` (новые установки)
     и приведён к nullable миграцией `0000_03_000008` (существующие). Общий журнал показывает такие записи вариантом «Без
     сегмента». При добавлении FK с `nullOnDelete()` всегда проверяй `nullable()` и пиши тест на удаление родителя.
+
+29. **Диск вложений: приватность, объектное хранилище и временные ссылки.** Дефолт `image.disk` — `local`
+    (`storage/app/private`), потому что файлы нужны только для `uploadMedia`: дальше MAX отдаёт их со своих серверов.
+    Диск может быть любым: локальный публичный/приватный или объектное хранилище (S3 и подобные). Ядро `max-php-client`
+    принимает только локальный путь, поэтому файл к загрузке готовит `Support\AttachmentFile`: локальный диск — путь
+    напрямую, удалённый — скачивание во временную копию в `sys_get_temp_dir()` (с исходным именем, чтобы оно сохранилось
+    в MAX) с правами 0600 и проверкой размера. Копия одна на рассылку (кэш в `BroadcastSender`), удаляется в его
+    деструкторе, то есть после всех получателей. Отсюда требование к хосту: временный каталог должен вмещать одно
+    вложение (до `image.max_kb`, ~50 МБ). Ссылки в админке строит `Support\AttachmentStorage`:
+    прямой URL только у локального публичного диска, у объектного хранилища всегда подписанная ссылка (presigned), даже
+    для публичного бакета; у локального приватного временные ссылки работают только при `'serve' => true`
+    в `config/filesystems.php`
+    (дефолт Laravel 11+, в Testbench включён в `defineEnvironment`). Без временных ссылок `AttachmentStorage::url()`
+    возвращает null и в UI остаётся имя файла — это осознанная деградация, а не повод возвращать публичный дефолт.
+    `Storage::fake()` всегда подменяет `temporaryUrl` своим замыканием, поэтому ветку «диск не умеет временные ссылки»
+    проверяй на настоящем диске без `serve`; удалённый диск в тестах подменяет `tests/Fixtures/RemoteDisk`. Поле «Файлы»
+    ограничено `image.accepted_file_types`, картинки/видео — `image.accepted_mime_types`; Filament валидирует только
+    `TemporaryUploadedFile`, поэтому в тестах правило проверяется через `getAcceptedFileTypes()`, а не подстановкой
+    `UploadedFile::fake()`.
+
+30. **Сегмент — аудитория, а не список согласий.** Ответы не меняют `chat_ids` сегмента: `ConsentService::record()`
+    только пишет факт в `max_broadcast_consents`. Запись `pending` — это отправленный запрос, а не ответ:
+    `answeredChatIds()` её не учитывает, поэтому такие получатели остаются кандидатами и при повторном нажатии получают
+    запрос снова, а в журнале видно, кто ещё не ответил. Опрос идёт получателям сегмента без ответа, рассылка по
+    сегменту — только `opt_in` (`optedInChatIds`); поэтому «молчание» и отказ рассылку не получают, а ответившие запрос
+    повторно не получают. Диалоги выбираются только сегментами; поле получателей — только группы и каналы, явный диалог
+    в `chatIds` игнорируется. `SegmentConsentRule` требует согласившихся для выбранных сегментов, сервис дополнительно
+    бросает `InvalidArgumentException` на пустом резолве. Не «восстанавливай» старую пересборку `chat_ids` из таблицы
+    согласий: она стирала вручную добавленных получателей и ломала повторный опрос.
 
 ## 11. Чек-лист перед завершением задачи
 
@@ -608,8 +694,8 @@ Xdebug включён и отчёт покрытия строится без д�
 - [ ] Каждый новый ключ перевода присутствует и в `lang/ru`, и в `lang/en`; новая переменная — в `.env.example` и
   `config/filament-max-broadcasts.php`.
 - [ ] Секретов нет в коде, логах, коммитах; `README.md`, `.env.example` и `AGENTS.md` синхронны с кодом.
-- [ ] Обновлены `.agents/plans/PLAN-filament-max-broadcasts.md` и `.agents/journals/` (строка в `JOURNAL.md` + файл в
-  `sessions/` по формату 4.1).
+- [ ] Обновлены активный план (если он есть) и `.agents/journals/` (строка в `JOURNAL.md` + файл в `sessions/` по
+  формату 4.1).
 - [ ] Коммит/тег/push — только по явному запросу пользователя; иначе оставлено рабочее дерево и описан статус.
 - [ ] Если просили краткий текст коммита: только head, на английском по Conventional Commits, собран по всему diff ветки
   (не по последнему действию), коммит не создан. Body — только если просили отдельно.

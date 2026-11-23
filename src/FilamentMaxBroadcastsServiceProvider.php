@@ -50,6 +50,7 @@ class FilamentMaxBroadcastsServiceProvider extends ServiceProvider
     public function boot(): void
     {
         $this->loadTranslationsFrom(__DIR__.'/../lang', 'filament-max-broadcasts');
+        $this->loadViewsFrom(__DIR__.'/../resources/views', 'filament-max-broadcasts');
         $this->loadMigrationsFrom(__DIR__.'/../database/migrations');
 
         $this->app->make(Dispatcher::class)->listen(MaxUpdateReceived::class, HandleConsentCallback::class);

@@ -28,15 +28,15 @@ abstract class TestCase extends Orchestra
         Queue::fake();
 
         Gate::define(
-            'broadcasts.view',
+            'max_broadcasts.view',
             static fn (?TestUser $user): bool => $user->can_view_broadcasts ?? false,
         );
         Gate::define(
-            'broadcasts.create',
+            'max_broadcasts.create',
             static fn (?TestUser $user): bool => $user->can_create_broadcasts ?? false,
         );
         Gate::define(
-            'broadcasts.manage',
+            'max_broadcasts.manage',
             static fn (?TestUser $user): bool => $user->can_manage_broadcasts ?? false,
         );
     }
@@ -73,5 +73,9 @@ abstract class TestCase extends Orchestra
 
         $app['config']->set('laravel-max-client.api_token', 'test-token');
         $app['config']->set('laravel-max-client.retry.base_delay_seconds', 0.0);
+
+        // Приватный диск local в Laravel 11+ умеет временные подписанные ссылки;
+        // в Testbench по умолчанию serve выключен — включаем, как в реальном хосте.
+        $app['config']->set('filesystems.disks.local.serve', true);
     }
 }

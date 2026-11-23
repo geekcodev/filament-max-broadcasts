@@ -4,19 +4,23 @@ declare(strict_types=1);
 
 namespace GeekCo\FilamentMaxBroadcasts\Resources;
 
+use Filament\Navigation\NavigationItem;
 use Filament\Panel;
+use Filament\Resources\Pages\Page;
 use Filament\Resources\Resource;
 use Filament\Schemas\Schema;
 use Filament\Tables\Table;
 use GeekCo\FilamentMaxBroadcasts\Models\BroadcastSegment;
 use GeekCo\FilamentMaxBroadcasts\Resources\Pages\CreateBroadcastSegment;
 use GeekCo\FilamentMaxBroadcasts\Resources\Pages\EditBroadcastSegment;
+use GeekCo\FilamentMaxBroadcasts\Resources\Pages\ListBroadcastSegmentConsents;
 use GeekCo\FilamentMaxBroadcasts\Resources\Pages\ListBroadcastSegments;
+use GeekCo\FilamentMaxBroadcasts\Resources\Pages\ManageBroadcastSegmentRecipients;
 use GeekCo\FilamentMaxBroadcasts\Resources\Pages\ViewBroadcastSegment;
-use GeekCo\FilamentMaxBroadcasts\Resources\RelationManagers\BroadcastConsentsRelationManager;
 use GeekCo\FilamentMaxBroadcasts\Resources\Schemas\BroadcastSegmentForm;
 use GeekCo\FilamentMaxBroadcasts\Resources\Schemas\BroadcastSegmentInfolist;
 use GeekCo\FilamentMaxBroadcasts\Resources\Tables\BroadcastSegmentsTable;
+use Illuminate\Auth\Access\Response;
 use Illuminate\Database\Eloquent\Model;
 
 class BroadcastSegmentResource extends Resource
@@ -83,7 +87,7 @@ class BroadcastSegmentResource extends Resource
 
     public static function canAccess(): bool
     {
-        $permission = config()->string('filament-max-broadcasts.permissions.view', 'broadcasts.view');
+        $permission = config()->string('filament-max-broadcasts.permissions.view', 'max_broadcasts.view');
 
         $user = auth()->user();
 
@@ -92,7 +96,7 @@ class BroadcastSegmentResource extends Resource
 
     public static function canCreate(): bool
     {
-        $permission = config()->string('filament-max-broadcasts.permissions.create', 'broadcasts.create');
+        $permission = config()->string('filament-max-broadcasts.permissions.create', 'max_broadcasts.create');
 
         $user = auth()->user();
 
@@ -101,7 +105,7 @@ class BroadcastSegmentResource extends Resource
 
     public static function canView(Model $record): bool
     {
-        $permission = config()->string('filament-max-broadcasts.permissions.view', 'broadcasts.view');
+        $permission = config()->string('filament-max-broadcasts.permissions.view', 'max_broadcasts.view');
 
         $user = auth()->user();
 
@@ -110,7 +114,7 @@ class BroadcastSegmentResource extends Resource
 
     public static function canEdit(Model $record): bool
     {
-        $permission = config()->string('filament-max-broadcasts.permissions.manage', 'broadcasts.manage');
+        $permission = config()->string('filament-max-broadcasts.permissions.manage', 'max_broadcasts.manage');
 
         $user = auth()->user();
 
@@ -119,18 +123,20 @@ class BroadcastSegmentResource extends Resource
 
     public static function canDelete(Model $record): bool
     {
-        $permission = config()->string('filament-max-broadcasts.permissions.manage', 'broadcasts.manage');
+        $permission = config()->string('filament-max-broadcasts.permissions.manage', 'max_broadcasts.manage');
 
         $user = auth()->user();
 
         return $user !== null && $user->can($permission);
     }
 
-    public static function getRelations(): array
+    /**
+     * Авторизация удаления на уровне ресурса: без явного переопределения Filament смотрит только политику
+     * модели (`get_authorization_response()`), политик в пакете нет, и `canDelete()` остаётся невостребованным.
+     */
+    public static function getDeleteAuthorizationResponse(Model $record): Response
     {
-        return [
-            BroadcastConsentsRelationManager::class,
-        ];
+        return static::canDelete($record) ? Response::allow() : Response::deny();
     }
 
     public static function getPages(): array
@@ -140,6 +146,39 @@ class BroadcastSegmentResource extends Resource
             'create' => CreateBroadcastSegment::route('/create'),
             'view' => ViewBroadcastSegment::route('/{record}'),
             'edit' => EditBroadcastSegment::route('/{record}/edit'),
+            'recipients' => ManageBroadcastSegmentRecipients::route('/{record}/recipients'),
+            'consents' => ListBroadcastSegmentConsents::route('/{record}/consents'),
+        ];
+    }
+
+    /**
+     * @return array<NavigationItem>
+     */
+    public static function getRecordSubNavigation(Page $page): array
+    {
+        $record = method_exists($page, 'getRecord') ? $page->getRecord() : null;
+
+        if ($record === null) {
+            return [];
+        }
+
+        return [
+            NavigationItem::make(__('filament-max-broadcasts::broadcasts.segment.tabs.view'))
+                ->icon('heroicon-o-eye')
+                ->url(static::getUrl('view', ['record' => $record]))
+                ->isActiveWhen(static fn (): bool => $page instanceof ViewBroadcastSegment),
+            NavigationItem::make(__('filament-max-broadcasts::broadcasts.segment.tabs.main'))
+                ->icon('heroicon-o-pencil-square')
+                ->url(static::getUrl('edit', ['record' => $record]))
+                ->isActiveWhen(static fn (): bool => $page instanceof EditBroadcastSegment),
+            NavigationItem::make(__('filament-max-broadcasts::broadcasts.segment.tabs.recipients'))
+                ->icon('heroicon-o-users')
+                ->url(static::getUrl('recipients', ['record' => $record]))
+                ->isActiveWhen(static fn (): bool => $page instanceof ManageBroadcastSegmentRecipients),
+            NavigationItem::make(__('filament-max-broadcasts::broadcasts.segment.tabs.consents'))
+                ->icon('heroicon-o-check-badge')
+                ->url(static::getUrl('consents', ['record' => $record]))
+                ->isActiveWhen(static fn (): bool => $page instanceof ListBroadcastSegmentConsents),
         ];
     }
 }

@@ -14,10 +14,10 @@ class ListBroadcastSegments extends ListRecords
 
     protected function getHeaderActions(): array
     {
-        $createPermission = config()->string('filament-max-broadcasts.permissions.create', 'broadcasts.create');
+        $createPermission = config()->string('filament-max-broadcasts.permissions.create', 'max_broadcasts.create');
 
         return [
-            CreateAction::make()->authorize($createPermission),
+            CreateAction::make()->authorize($createPermission)->outlined()->icon('heroicon-o-plus'),
         ];
     }
 }

@@ -17,22 +17,25 @@ use Filament\Schemas\Schema;
 use GeekCo\FilamentMaxBroadcasts\Enums\BroadcastTypes\News;
 use GeekCo\FilamentMaxBroadcasts\Models\Broadcast;
 use GeekCo\FilamentMaxBroadcasts\Models\BroadcastAttachment;
-use GeekCo\FilamentMaxBroadcasts\Models\BroadcastSegment;
-use GeekCo\FilamentMaxBroadcasts\Services\BroadcastSegmentRecipients;
+use GeekCo\FilamentMaxBroadcasts\Support\AttachmentStorage;
 use GeekCo\FilamentMaxBroadcasts\Support\BroadcastSegmentOptions;
 use GeekCo\FilamentMaxBroadcasts\Support\BroadcastTypes;
 use GeekCo\FilamentMaxBroadcasts\Support\ChatSelectionField;
+use GeekCo\FilamentMaxBroadcasts\Support\SegmentConsentRule;
 use GeekCo\MaxPhpClient\Enum\UploadType;
-use Illuminate\Support\Facades\Storage;
 
 class BroadcastForm
 {
     public static function configure(Schema $schema): Schema
     {
-        $imageDisk = config()->string('filament-max-broadcasts.image.disk', 'public');
+        $imageDisk = AttachmentStorage::disk();
         $imageDirectory = config()->string('filament-max-broadcasts.image.directory', 'broadcasts');
         $maxKb = config()->integer('filament-max-broadcasts.image.max_kb', 51200);
         $mimeTypes = (array) config('filament-max-broadcasts.image.accepted_mime_types', []);
+        $fileMimeTypes = array_values(array_filter(
+            (array) config('filament-max-broadcasts.image.accepted_file_types', []),
+            static fn (mixed $mime): bool => is_string($mime) && $mime !== '',
+        ));
         $imageMimeTypes = array_values(array_filter(
             $mimeTypes,
             static fn (mixed $mime): bool => is_string($mime) && str_starts_with($mime, 'image/'),
@@ -43,6 +46,7 @@ class BroadcastForm
         ));
 
         return $schema
+            ->columns(1)
             ->components([
                 Section::make(__('filament-max-broadcasts::broadcasts.form.message_section'))
                     ->description(__('filament-max-broadcasts::broadcasts.form.message_section_description'))
@@ -58,6 +62,7 @@ class BroadcastForm
                             ->label(__('filament-max-broadcasts::broadcasts.form.text'))
                             ->required()
                             ->maxLength(4000)
+                            ->minHeight('18rem')
                             ->toolbarButtons([
                                 'blockquote',
                                 'bold',
@@ -83,7 +88,11 @@ class BroadcastForm
                             ->maxSize($maxKb)
                             ->columnSpanFull()
                             ->hiddenOn('view')
-                            ->helperText(__('filament-max-broadcasts::broadcasts.form.images_helper')),
+                            ->helperText(__('filament-max-broadcasts::broadcasts.form.images_helper'))
+                            ->when(
+                                $imageMimeTypes !== [],
+                                static fn (FileUpload $upload): FileUpload => $upload->acceptedFileTypes($imageMimeTypes),
+                            ),
                         FileUpload::make('videos')
                             ->label(__('filament-max-broadcasts::broadcasts.form.videos'))
                             ->disk($imageDisk)
@@ -100,7 +109,11 @@ class BroadcastForm
                             ->multiple()
                             ->maxSize($maxKb)
                             ->columnSpanFull()
-                            ->hiddenOn('view'),
+                            ->hiddenOn('view')
+                            ->when(
+                                $fileMimeTypes !== [],
+                                static fn (FileUpload $upload): FileUpload => $upload->acceptedFileTypes($fileMimeTypes),
+                            ),
                         DateTimePicker::make('scheduled_at')
                             ->label(__('filament-max-broadcasts::broadcasts.form.scheduled_at'))
                             ->helperText(__('filament-max-broadcasts::broadcasts.form.scheduled_at_helper'))
@@ -121,26 +134,13 @@ class BroadcastForm
                             ->multiple()
                             ->helperText(__('filament-max-broadcasts::broadcasts.form.segments_helper'))
                             ->requiredWithout('recipient_chat_ids')
-                            ->live()
-                            ->afterStateUpdated(static function (callable $set, ?array $state): void {
-                                if ($state === null || $state === []) {
-                                    return;
-                                }
-
-                                $recipients = new BroadcastSegmentRecipients();
-                                $chatIds = [];
-
-                                foreach (BroadcastSegment::query()->whereIn('id', $state)->get() as $segment) {
-                                    $chatIds = [...$chatIds, ...$recipients->dialogChatIds($segment)];
-                                }
-
-                                $set('recipient_chat_ids', array_values(array_unique($chatIds)));
-                            })
+                            ->rule(new SegmentConsentRule())
                             ->columnSpanFull(),
                         ChatSelectionField::make(
                             'recipient_chat_ids',
                             __('filament-max-broadcasts::broadcasts.form.recipients'),
                             helperText: __('filament-max-broadcasts::broadcasts.form.recipients_helper'),
+                            nonDialogsOnly: true,
                         )->requiredWithout('segment_ids'),
                     ]),
                 Section::make(__('filament-max-broadcasts::broadcasts.form.attachments_section'))
@@ -188,15 +188,13 @@ class BroadcastForm
 
     private static function attachmentsList(): Component
     {
-        $imageDisk = config()->string('filament-max-broadcasts.image.disk', 'public');
-
         return RepeatableEntry::make('attachments')
             ->label(__('filament-max-broadcasts::broadcasts.form.attachments'))
             ->hiddenLabel()
             ->schema([
                 ImageEntry::make('path')
                     ->label(__('filament-max-broadcasts::broadcasts.form.attachment_item'))
-                    ->disk($imageDisk)
+                    ->disk(AttachmentStorage::disk())
                     ->height(120)
                     ->square()
                     ->extraImgAttributes(['loading' => 'lazy'])
@@ -233,7 +231,18 @@ class BroadcastForm
 
     private static function isImagePreviewable(BroadcastAttachment $attachment): bool
     {
-        return $attachment->upload_type === UploadType::Image && self::attachmentPath($attachment) !== null;
+        return self::attachmentPreviewUrl($attachment) !== null;
+    }
+
+    private static function attachmentPreviewUrl(BroadcastAttachment $attachment): ?string
+    {
+        if ($attachment->upload_type !== UploadType::Image) {
+            return null;
+        }
+
+        $path = self::attachmentPath($attachment);
+
+        return $path === null ? null : AttachmentStorage::url($path);
     }
 
     private static function attachmentTypeLabel(BroadcastAttachment $attachment): string
@@ -252,13 +261,7 @@ class BroadcastForm
     {
         $path = self::attachmentPath($attachment);
 
-        if ($path === null) {
-            return null;
-        }
-
-        $disk = config()->string('filament-max-broadcasts.image.disk', 'public');
-        $url = Storage::disk($disk)->url($path);
-
-        return $url !== '' ? $url : null;
+        return $path === null ? null : AttachmentStorage::url($path);
     }
+
 }

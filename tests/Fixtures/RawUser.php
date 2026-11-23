@@ -13,8 +13,8 @@ use GeekCo\LaravelMaxClient\Models\MaxUser;
  * (`name`, `first_name` + `last_name`, `username`) в обход реестра чатов.
  */
 /**
- * Атрибуты ставятся принудительно (`forceFill`): у моделей ядра разные `$fillable`
- * на 1.1 и 1.2, а стаб должен принимать одинаковый набор значений в обоих.
+ * Атрибуты ставятся принудительно (`forceFill`), чтобы стаб не зависел от `$fillable`
+ * модели ядра.
  */
 final class RawUser extends MaxUser
 {

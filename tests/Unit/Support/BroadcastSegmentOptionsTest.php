@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace GeekCo\FilamentMaxBroadcasts\Tests\Unit\Support;
 
 use GeekCo\FilamentMaxBroadcasts\Models\BroadcastSegment;
+use GeekCo\FilamentMaxBroadcasts\Services\ConsentService;
 use GeekCo\FilamentMaxBroadcasts\Support\BroadcastSegmentOptions;
 use GeekCo\FilamentMaxBroadcasts\Tests\Fixtures\Chats;
 use GeekCo\FilamentMaxBroadcasts\Tests\TestCase;
@@ -42,6 +43,10 @@ class BroadcastSegmentOptionsTest extends TestCase
         $empty = $this->segment('Пустой', []);
         $groupsOnly = $this->segment('Группы', [33]);
 
+        $consent = new ConsentService();
+        $consent->optIn(11, null, $vip->id);
+        $consent->optIn(22, null, $vip->id);
+
         $options = BroadcastSegmentOptions::options();
 
         self::assertArrayHasKey($vip->id, $options);
@@ -54,6 +59,10 @@ class BroadcastSegmentOptionsTest extends TestCase
         $this->dialog(11);
         $this->dialog(22);
         $segment = $this->segment('VIP', [11, 22]);
+
+        $consent = new ConsentService();
+        $consent->optIn(11, null, $segment->id);
+        $consent->optIn(22, null, $segment->id);
 
         $label = BroadcastSegmentOptions::options()[$segment->id];
 
@@ -68,6 +77,10 @@ class BroadcastSegmentOptionsTest extends TestCase
         $this->dialog(22, MaxChatStatus::Stopped);
         $segment = $this->segment('VIP', [11, 22]);
 
+        $consent = new ConsentService();
+        $consent->optIn(11, null, $segment->id);
+        $consent->optIn(22, null, $segment->id);
+
         $label = BroadcastSegmentOptions::options()[$segment->id];
 
         self::assertStringContainsString('>1</span>', $label);
@@ -77,6 +90,8 @@ class BroadcastSegmentOptionsTest extends TestCase
     {
         $this->dialog(11);
         $segment = $this->segment('<b>VIP</b>', [11]);
+
+        (new ConsentService())->optIn(11, null, $segment->id);
 
         $label = BroadcastSegmentOptions::options()[$segment->id];
 
@@ -92,5 +107,11 @@ class BroadcastSegmentOptionsTest extends TestCase
 
         self::assertSame([$empty->id => 'Пустой'], $labels);
         self::assertStringNotContainsString('fi-badge', $labels[$empty->id]);
+    }
+
+    public function testLabelsForReturnsEmptyArrayForEmptySelection(): void
+    {
+        self::assertSame([], BroadcastSegmentOptions::labelsFor([]));
+        self::assertSame([], BroadcastSegmentOptions::labelsFor([0, -5, 'abc', null, []]));
     }
 }

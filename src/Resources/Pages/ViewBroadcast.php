@@ -9,7 +9,6 @@ use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ViewRecord;
 use GeekCo\FilamentMaxBroadcasts\Enums\BroadcastStatus;
 use GeekCo\FilamentMaxBroadcasts\Models\Broadcast;
-use GeekCo\FilamentMaxBroadcasts\Models\BroadcastAttachment;
 use GeekCo\FilamentMaxBroadcasts\Resources\BroadcastResource;
 use GeekCo\FilamentMaxBroadcasts\Services\BroadcastService;
 use InvalidArgumentException;
@@ -23,7 +22,7 @@ class ViewBroadcast extends ViewRecord
         /** @var Broadcast $broadcast */
         $broadcast = $this->getRecord();
 
-        $managePermission = config()->string('filament-max-broadcasts.permissions.manage', 'broadcasts.manage');
+        $managePermission = config()->string('filament-max-broadcasts.permissions.manage', 'max_broadcasts.manage');
 
         return [
             Action::make('repeat')
@@ -39,26 +38,9 @@ class ViewBroadcast extends ViewRecord
                 ->action(function (): void {
                     /** @var Broadcast $broadcast */
                     $broadcast = $this->getRecord();
-                    $user = auth()->user();
-
-                    /** @var list<array{upload_type: string, path: string}> $attachments */
-                    $attachments = $broadcast->attachments->map(
-                        static fn (BroadcastAttachment $attachment): array => [
-                            'upload_type' => $attachment->upload_type->value,
-                            'path' => $attachment->path,
-                        ],
-                    )->all();
 
                     try {
-                        app(BroadcastService::class)->create(
-                            text: $broadcast->text,
-                            scheduledAt: null,
-                            creator: $user,
-                            attachments: $attachments,
-                            type: $broadcast->type,
-                            chatIds: $broadcast->recipient_chat_ids,
-                            segments: array_values($broadcast->segments->all()),
-                        );
+                        app(BroadcastService::class)->repeat($broadcast, auth()->user());
                     } catch (InvalidArgumentException) {
                         Notification::make()
                             ->title(__('filament-max-broadcasts::broadcasts.notifications.repeat_empty'))
@@ -77,6 +59,7 @@ class ViewBroadcast extends ViewRecord
                 ->label(__('filament-max-broadcasts::broadcasts.actions.delete'))
                 ->icon('heroicon-o-trash')
                 ->color('danger')
+                ->outlined()
                 ->requiresConfirmation()
                 ->modalHeading(__('filament-max-broadcasts::broadcasts.actions.delete'))
                 ->modalSubmitActionLabel(__('filament-max-broadcasts::broadcasts.actions.delete'))
@@ -89,6 +72,7 @@ class ViewBroadcast extends ViewRecord
             Action::make('sendNow')
                 ->label(__('filament-max-broadcasts::broadcasts.actions.send_now'))
                 ->icon('heroicon-o-paper-airplane')
+                ->outlined()
                 ->requiresConfirmation()
                 ->visible(fn (): bool => $broadcast->status === BroadcastStatus::Scheduled)
                 ->authorize($managePermission)
@@ -99,6 +83,7 @@ class ViewBroadcast extends ViewRecord
                 ->label(__('filament-max-broadcasts::broadcasts.actions.cancel'))
                 ->icon('heroicon-o-x-circle')
                 ->color('danger')
+                ->outlined()
                 ->requiresConfirmation()
                 ->visible(
                     fn (): bool => in_array($broadcast->status, [

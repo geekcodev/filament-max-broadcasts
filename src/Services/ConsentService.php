@@ -7,17 +7,17 @@ namespace GeekCo\FilamentMaxBroadcasts\Services;
 use GeekCo\FilamentMaxBroadcasts\Enums\BroadcastConsentAction;
 use GeekCo\FilamentMaxBroadcasts\Models\BroadcastConsent;
 use GeekCo\FilamentMaxBroadcasts\Models\BroadcastSegment;
-use Illuminate\Support\Facades\DB;
 
 /**
  * Единая точка изменения согласий и записи фактов opt-in/opt-out.
  *
- * Согласие привязано к сегменту, из которого был запрошен: слушатель
- * HandleConsentCallback складывает chat_id согласившихся в сегмент из payload кнопки
- * (payload без сегмента больше не принимается). Необязательный segmentId сохранён для
- * обратной совместимости: без него метод работает со стартовым сегментом
- * «Новости и акции» (config consent.segment_name). Таблица max_broadcast_consents
- * хранит последний факт (action) по паре segment+chat.
+ * Согласие — это факт по паре (сегмент, чат) в max_broadcast_consents. Состав сегмента
+ * (chat_ids) задаётся вручную и ответами не меняется: сегмент — это аудитория, которую
+ * опрашивают, а рассылка по сегменту уходит только тем, кто ответил opt_in. Поэтому
+ * список согласившихся вычисляется из таблицы согласий, а не хранится в самом сегменте.
+ *
+ * Запись pending означает только отправленный запрос: она видна в журнале согласий,
+ * но ответом не считается и не мешает повторному опросу.
  */
 class ConsentService
 {
@@ -32,25 +32,67 @@ class ConsentService
         $this->consentModel = $resolved;
     }
 
-    public function optIn(int $chatId, ?int $userId = null, ?int $segmentId = null): void
+    public function optIn(int $chatId, ?int $userId, int $segmentId): void
     {
         $this->record($chatId, $userId, BroadcastConsentAction::OptIn, $segmentId);
     }
 
-    public function optOut(int $chatId, ?int $userId = null, ?int $segmentId = null): void
+    /**
+     * Фиксирует отправленный запрос согласия. Ответ (opt_in/opt_out) запросом не перезаписывается.
+     */
+    public function requestSent(int $chatId, ?int $userId, int $segmentId): void
+    {
+        $segment = $this->findSegment($segmentId);
+
+        if ($segment === null) {
+            return;
+        }
+
+        $this->requestSentForSegment($segment, $chatId, $userId);
+    }
+
+    /**
+     * То же, что requestSent(), но без повторного чтения сегмента: джоба уже держит модель.
+     */
+    public function requestSentForSegment(BroadcastSegment $segment, int $chatId, ?int $userId): void
+    {
+        $modelClass = $this->consentModel;
+
+        // Обновляем только pending-строку: ответ (opt_in/opt_out) запросом не перезаписывается.
+        $updated = $modelClass::query()
+            ->where('segment_id', $segment->getKey())
+            ->where('chat_id', $chatId)
+            ->where('action', BroadcastConsentAction::Pending->value)
+            ->update(['user_id' => $userId, 'source' => 'request']);
+
+        if ($updated > 0) {
+            return;
+        }
+
+        // Строка есть и содержит ответ — оставляем её как есть.
+        if ($modelClass::query()
+            ->where('segment_id', $segment->getKey())
+            ->where('chat_id', $chatId)
+            ->exists()) {
+            return;
+        }
+
+        $modelClass::query()->create([
+            'segment_id' => $segment->getKey(),
+            'chat_id' => $chatId,
+            'user_id' => $userId,
+            'action' => BroadcastConsentAction::Pending,
+            'source' => 'request',
+        ]);
+    }
+
+    public function optOut(int $chatId, ?int $userId, int $segmentId): void
     {
         $this->record($chatId, $userId, BroadcastConsentAction::OptOut, $segmentId);
     }
 
-    /**
-     * Сегмент по id; null — стартовый сегмент «Новости и акции» (создаётся при отсутствии).
-     */
-    public function findSegment(?int $segmentId): ?BroadcastSegment
+    public function findSegment(int $segmentId): ?BroadcastSegment
     {
-        if ($segmentId === null) {
-            return $this->resolveConsentSegment();
-        }
-
         /** @var class-string<BroadcastSegment> $modelClass */
         $modelClass = config('filament-max-broadcasts.segment_model', BroadcastSegment::class);
 
@@ -58,38 +100,11 @@ class ConsentService
     }
 
     /**
-     * Резолвим (создаём при отсутствии) стартовый сегмент «Новости и акции» по имени из конфига.
-     */
-    public function resolveConsentSegment(): BroadcastSegment
-    {
-        /** @var class-string<BroadcastSegment> $modelClass */
-        $modelClass = config('filament-max-broadcasts.segment_model', BroadcastSegment::class);
-
-        $name = config()->string('filament-max-broadcasts.consent.segment_name', 'Новости и акции');
-
-        return $modelClass::query()->firstOrCreate(
-            ['name' => $name],
-            ['chat_ids' => []],
-        );
-    }
-
-    /**
-     * @return list<int> chat_id согласившихся в стартовом сегменте
-     */
-    public function consentChatIds(): array
-    {
-        return $this->resolveConsentSegment()->chat_ids ?? [];
-    }
-
-    /**
-     * chat_id всех, кто ответил на запрос (opt_in или opt_out) в сегменте.
-     *
-     * Источник дедупа для повторного запроса: ответившие в этом сегменте запрос больше
-     * не получают, проигнорировавшие — получают. Записи других сегментов не участвуют.
+     * chat_id всех, кто согласился (opt_in) в сегменте. Источник аудитории рассылки.
      *
      * @return list<int>
      */
-    public function answeredChatIds(?int $segmentId = null): array
+    public function optedInChatIds(int $segmentId): array
     {
         $segment = $this->findSegment($segmentId);
 
@@ -101,12 +116,75 @@ class ConsentService
 
         return array_values($modelClass::query()
             ->where('segment_id', $segment->getKey())
-            ->get()
-            ->map(static fn (BroadcastConsent $consent): int => $consent->chat_id)
+            ->where('action', BroadcastConsentAction::OptIn->value)
+            ->pluck('chat_id')
+            ->map(static fn (mixed $chatId): int => is_scalar($chatId) ? (int) $chatId : 0)
             ->all());
     }
 
-    private function record(int $chatId, ?int $userId, BroadcastConsentAction $action, ?int $segmentId): void
+    /**
+     * chat_id согласившихся (opt_in) по нескольким сегментам одним запросом.
+     *
+     * @param  list<int>  $segmentIds
+     * @return array<int, list<int>> segment id => chat_id
+     */
+    public function optedInChatIdsBySegment(array $segmentIds): array
+    {
+        if ($segmentIds === []) {
+            return [];
+        }
+
+        $modelClass = $this->consentModel;
+
+        $rows = $modelClass::query()
+            ->whereIn('segment_id', $segmentIds)
+            ->where('action', BroadcastConsentAction::OptIn->value)
+            ->get(['segment_id', 'chat_id']);
+
+        $map = [];
+
+        foreach ($rows as $row) {
+            $segmentId = $row->getAttribute('segment_id');
+            $chatId = $row->getAttribute('chat_id');
+
+            if (! is_scalar($segmentId) || ! is_scalar($chatId)) {
+                continue;
+            }
+
+            $map[(int) $segmentId][] = (int) $chatId;
+        }
+
+        return $map;
+    }
+
+    /**
+     * chat_id всех, кто ответил (opt_in или opt_out) в сегменте.
+     *
+     * Источник дедупа для повторного запроса: ответившие запрос больше не получают,
+     * проигнорировавшие — получают. Записи pending — это отправленные запросы, а не
+     * ответы, поэтому они сюда не попадают. Записи других сегментов не участвуют.
+     *
+     * @return list<int>
+     */
+    public function answeredChatIds(int $segmentId): array
+    {
+        $segment = $this->findSegment($segmentId);
+
+        if ($segment === null) {
+            return [];
+        }
+
+        $modelClass = $this->consentModel;
+
+        return array_values($modelClass::query()
+            ->where('segment_id', $segment->getKey())
+            ->where('action', '!=', BroadcastConsentAction::Pending->value)
+            ->pluck('chat_id')
+            ->map(static fn (mixed $chatId): int => is_scalar($chatId) ? (int) $chatId : 0)
+            ->all());
+    }
+
+    private function record(int $chatId, ?int $userId, BroadcastConsentAction $action, int $segmentId): void
     {
         $segment = $this->findSegment($segmentId);
 
@@ -116,26 +194,9 @@ class ConsentService
 
         $modelClass = $this->consentModel;
 
-        DB::transaction(function () use ($modelClass, $segment, $chatId, $userId, $action): void {
-            $modelClass::query()
-                ->updateOrCreate(
-                    ['segment_id' => $segment->getKey(), 'chat_id' => $chatId],
-                    ['user_id' => $userId, 'action' => $action, 'source' => 'callback'],
-                );
-
-            // chat_ids сегмента — производное от таблицы согласий (opt-in): пересчитываем
-            // в той же транзакции вместо read-modify-write, чтобы параллельные callback'и
-            // не теряли запись (lost update) и список самовосстанавливался.
-            $chatIds = array_values(
-                $modelClass::query()
-                    ->where('segment_id', $segment->getKey())
-                    ->where('action', BroadcastConsentAction::OptIn->value)
-                    ->get()
-                    ->map(static fn (BroadcastConsent $consent): int => $consent->chat_id)
-                    ->all(),
-            );
-
-            $segment->update(['chat_ids' => $chatIds]);
-        });
+        $modelClass::query()->updateOrCreate(
+            ['segment_id' => $segment->getKey(), 'chat_id' => $chatId],
+            ['user_id' => $userId, 'action' => $action, 'source' => 'callback'],
+        );
     }
 }

@@ -9,11 +9,14 @@ use GeekCo\FilamentMaxBroadcasts\Models\BroadcastConsent;
 use GeekCo\FilamentMaxBroadcasts\Models\BroadcastSegment;
 use GeekCo\FilamentMaxBroadcasts\Resources\BroadcastConsentResource;
 use GeekCo\FilamentMaxBroadcasts\Resources\Pages\ListBroadcastConsents;
+use GeekCo\FilamentMaxBroadcasts\Resources\Tables\BroadcastConsentsTable;
 use GeekCo\FilamentMaxBroadcasts\Tests\Fixtures\TestUser;
 use GeekCo\FilamentMaxBroadcasts\Tests\Fixtures\Chats;
 use GeekCo\FilamentMaxBroadcasts\Tests\TestCase;
 use GeekCo\LaravelMaxClient\Enums\MaxChatStatus;
+use GeekCo\LaravelMaxClient\Models\MaxUser;
 use GeekCo\MaxPhpClient\Enum\ChatType;
+use Filament\Tables\Filters\SelectFilter;
 use Livewire\Livewire;
 
 class BroadcastConsentResourceTest extends TestCase
@@ -74,6 +77,12 @@ class BroadcastConsentResourceTest extends TestCase
             'chat_id' => 22,
             'action' => BroadcastConsentAction::OptOut,
         ]);
+        BroadcastConsent::query()->create([
+            'segment_id' => $segment->id,
+            'chat_id' => 33,
+            'action' => BroadcastConsentAction::Pending,
+            'source' => 'request',
+        ]);
 
         $this->actingAs($this->adminUser());
 
@@ -81,11 +90,14 @@ class BroadcastConsentResourceTest extends TestCase
             ->assertSuccessful()
             ->assertSee('11')
             ->assertSee('22')
+            ->assertSee('33')
+            ->assertSee(BroadcastConsentAction::Pending->label())
             ->assertSee(BroadcastConsentAction::OptIn->label())
-            ->assertSee(BroadcastConsentAction::OptOut->label());
+            ->assertSee(BroadcastConsentAction::OptOut->label())
+            ->assertSee(__('filament-max-broadcasts::broadcasts.consent_table.source_values.request'));
     }
 
-    public function testIndexPageShowsChatNameAndType(): void
+    public function testIndexPageShowsChatNameAndId(): void
     {
         $segment = $this->createSegment();
 
@@ -99,13 +111,29 @@ class BroadcastConsentResourceTest extends TestCase
             'status' => MaxChatStatus::Active,
             'chat_type' => ChatType::Dialog,
         ]);
+        MaxUser::query()->create([
+            'user_id' => 1,
+            'first_name' => 'Иван',
+        ]);
 
         $this->actingAs($this->adminUser());
 
         $this->get(BroadcastConsentResource::getUrl('index'))
             ->assertSuccessful()
-            ->assertSee(__('filament-max-broadcasts::broadcasts.chat_types.dialog'));
+            ->assertSee('Иван')
+            ->assertSee('11')
+            ->assertDontSee(__('filament-max-broadcasts::broadcasts.chat_types.dialog'));
     }
+    public function testIndexPageShowsLocalizedEmptyState(): void
+    {
+        $this->actingAs($this->adminUser());
+
+        $this->get(BroadcastConsentResource::getUrl('index'))
+            ->assertSuccessful()
+            ->assertSee(__('filament-max-broadcasts::broadcasts.consent_table.empty_heading'))
+            ->assertDontSee('broadcast consents');
+    }
+
     public function testIndexPageFiltersConsentsBySegment(): void
     {
         $first = $this->createSegment();
@@ -151,12 +179,80 @@ class BroadcastConsentResourceTest extends TestCase
             ->assertCanNotSeeTableRecords([$inOther]);
     }
 
-    private function consent(?int $segmentId, int $chatId): BroadcastConsent
+    public function testIndexPageShowsUnknownSourceAsStoredValue(): void
     {
+        $segment = $this->createSegment();
+
+        BroadcastConsent::query()->create([
+            'segment_id' => $segment->id,
+            'chat_id' => 11,
+            'action' => BroadcastConsentAction::OptIn,
+            'source' => 'legacy',
+        ]);
+
+        $this->actingAs($this->adminUser());
+
+        $this->get(BroadcastConsentResource::getUrl('index'))
+            ->assertSuccessful()
+            ->assertSee('legacy');
+    }
+
+    public function testIndexPageFiltersPendingConsents(): void
+    {
+        $segment = $this->createSegment();
+
+        $pending = $this->consent($segment->id, 11, BroadcastConsentAction::Pending);
+        $answered = $this->consent($segment->id, 22);
+
+        $this->actingAs($this->adminUser());
+
+        Livewire::test(ListBroadcastConsents::class)
+            ->filterTable('action', BroadcastConsentAction::Pending->value)
+            ->assertCanSeeTableRecords([$pending])
+            ->assertCanNotSeeTableRecords([$answered]);
+    }
+
+    public function testIndexPageShowsUserIdWhenPresent(): void
+    {
+        $segment = $this->createSegment();
+        $consent = BroadcastConsent::query()->create([
+            'segment_id' => $segment->id,
+            'chat_id' => 11,
+            'user_id' => 1,
+            'action' => BroadcastConsentAction::OptIn,
+        ]);
+
+        $this->actingAs($this->adminUser());
+
+        Livewire::test(ListBroadcastConsents::class)
+            // @phpstan-ignore method.notFound
+            ->assertTableColumnStateSet('user_id', '1', $consent);
+    }
+
+    public function testSegmentFilterIgnoresMalformedValue(): void
+    {
+        $segment = $this->createSegment();
+        $first = $this->consent($segment->id, 11);
+        $second = $this->consent($segment->id, 22);
+
+        $filter = (new \ReflectionMethod(BroadcastConsentsTable::class, 'segmentFilter'))->invoke(null);
+        self::assertInstanceOf(SelectFilter::class, $filter);
+
+        $query = BroadcastConsent::query();
+        $filter->apply($query, ['value' => []]);
+
+        self::assertSame([$first->id, $second->id], $query->pluck('id')->all());
+    }
+
+    private function consent(
+        ?int $segmentId,
+        int $chatId,
+        BroadcastConsentAction $action = BroadcastConsentAction::OptIn,
+    ): BroadcastConsent {
         return BroadcastConsent::query()->create([
             'segment_id' => $segmentId,
             'chat_id' => $chatId,
-            'action' => BroadcastConsentAction::OptIn,
+            'action' => $action,
         ]);
     }
 }

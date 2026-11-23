@@ -232,8 +232,9 @@ class BroadcastRecipientsRelationManagerTest extends TestCase
             // @phpstan-ignore method.notFound
             ->assertCanSeeTableRecords([$recipient])
             ->assertSee('fi-badge', false)
-            ->assertSee(__('filament-max-broadcasts::broadcasts.chat_types.dialog'))
-            ->assertSee('ID: 11')
-            ->assertSee('ID: 1');
+            ->assertSee('11')
+            ->assertSee('1')
+            ->assertDontSee('ID: 11')
+            ->assertDontSee('ID: 1');
     }
 }

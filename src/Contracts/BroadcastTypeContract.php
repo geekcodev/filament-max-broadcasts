@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace GeekCo\FilamentMaxBroadcasts\Contracts;
 
 use GeekCo\FilamentMaxBroadcasts\Support\BroadcastTypeDefaults;
-use GeekCo\MaxPhpClient\Dto\InlineKeyboardButtonRow;
+use GeekCo\MaxPhpClient\Dto\Button;
 
 /**
  * Тип рассылки как поведение.
@@ -27,7 +27,7 @@ interface BroadcastTypeContract
     /**
      * Ряды inline-кнопок для типа (пусто — кнопок нет).
      *
-     * @return list<InlineKeyboardButtonRow>
+     * @return list<list<Button>>
      */
     public function buttonRows(): array;
 

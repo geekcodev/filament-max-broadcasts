@@ -6,12 +6,14 @@ namespace GeekCo\FilamentMaxBroadcasts\Enums;
 
 enum BroadcastConsentAction: string
 {
+    case Pending = 'pending';
     case OptIn = 'opt_in';
     case OptOut = 'opt_out';
 
     public function label(): string
     {
         return match ($this) {
+            self::Pending => __('filament-max-broadcasts::broadcasts.consent.action.pending'),
             self::OptIn => __('filament-max-broadcasts::broadcasts.consent.action.opt_in'),
             self::OptOut => __('filament-max-broadcasts::broadcasts.consent.action.opt_out'),
         };
